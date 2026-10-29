@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, NavLink, Navigate } from 'react-router-dom';
+import { useNavigate, useLocation, NavLink, Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import {
   LayoutDashboard, Users, Briefcase, BookOpen, CalendarCheck,
@@ -29,12 +29,15 @@ import { cn } from '@/utils/cn';
 
 const adminNav = [
   { label: 'Dashboard', href: '/admin',           icon: <LayoutDashboard className="w-4 h-4" /> },
+  { label: 'Approvals', href: '/admin/approvals', icon: <CheckCircle className="w-4 h-4" /> },
   { label: 'Users',     href: '/admin/users',     icon: <Users className="w-4 h-4" /> },
   { label: 'Providers', href: '/admin/providers', icon: <Briefcase className="w-4 h-4" /> },
   { label: 'Skills',    href: '/admin/skills',    icon: <BookOpen className="w-4 h-4" /> },
   { label: 'Bookings',  href: '/admin/bookings',  icon: <CalendarCheck className="w-4 h-4" /> },
   { label: 'Reviews',   href: '/admin/reviews',   icon: <Star className="w-4 h-4" /> },
   { label: 'Reports',   href: '/admin/reports',   icon: <BarChart3 className="w-4 h-4" /> },
+  { label: 'Support',  href: '/admin/tickets',   icon: <HelpCircle className="w-4 h-4" /> },
+  { label: 'Audit Log', href: '/admin/audit',    icon: <FileText className="w-4 h-4" /> },
   { label: 'Settings',  href: '/admin/settings',  icon: <ShieldCheck className="w-4 h-4" /> },
 ];
 
@@ -454,6 +457,8 @@ function ReportsTab({
 export function AdminDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [skillSubmissions, setSkillSubmissions] = useState<ProviderSkillSubmission[]>([]);
@@ -499,6 +504,13 @@ export function AdminDashboard() {
   useEffect(() => { load(); }, [load]);
 
   if (!user || user.role !== 'admin') return <Navigate to="/login" replace />;
+
+  const routeTab = location.pathname === '/admin'
+    ? 'dashboard'
+    : location.pathname.split('/')[2] ?? 'dashboard';
+  const activeTab = ['dashboard', 'approvals', 'providers', 'users', 'skills', 'bookings', 'reviews', 'reports', 'tickets', 'audit', 'settings'].includes(routeTab)
+    ? routeTab
+    : 'dashboard';
 
   const setSkillApproval = async (skill: ProviderSkillSubmission, status: 'approved' | 'rejected') => {
     let reason: string | undefined;
@@ -596,8 +608,9 @@ export function AdminDashboard() {
             />
           </div>
 
-          <Tabs defaultTab="approvals">
+          <Tabs key={activeTab} defaultTab={activeTab}>
             <TabList>
+              <Tab value="dashboard">Overview</Tab>
               <Tab value="approvals">
                 Session approvals
                 {skillSubmissions.filter(skill => skill.approval_status === 'pending').length > 0 && (
@@ -616,9 +629,83 @@ export function AdminDashboard() {
                 )}
               </Tab>
               <Tab value="audit">Audit</Tab>
+              <Tab value="settings">Settings</Tab>
             </TabList>
 
             <div className="mt-5">
+              {/* ── Admin overview ── */}
+              <TabPanel value="dashboard">
+                <div className="grid gap-4 md:grid-cols-3">
+                  {[
+                    {
+                      title: 'Skill submissions to review',
+                      count: skillSubmissions.filter(skill => skill.approval_status === 'pending').length,
+                      detail: 'Pending approval',
+                      href: '/admin/approvals',
+                      icon: <BookOpen className="w-5 h-5 text-indigo-600" />,
+                    },
+                    {
+                      title: 'Bookings awaiting action',
+                      count: bookings.filter(booking => booking.status === 'pending').length,
+                      detail: 'Pending provider response',
+                      href: '/admin/bookings',
+                      icon: <CalendarCheck className="w-5 h-5 text-amber-600" />,
+                    },
+                    {
+                      title: 'Open support requests',
+                      count: tickets.filter(ticket => ticket.status === 'open').length,
+                      detail: 'Need admin attention',
+                      href: '/admin/tickets',
+                      icon: <HelpCircle className="w-5 h-5 text-rose-600" />,
+                    },
+                  ].map(item => (
+                    <button
+                      key={item.href}
+                      onClick={() => navigate(item.href)}
+                      className="card p-5 text-left hover:shadow-card transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-[#0F172A] dark:text-slate-100">{item.title}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{item.detail}</p>
+                        </div>
+                        {item.icon}
+                      </div>
+                      <p className="text-3xl font-bold text-[#0F172A] dark:text-slate-100 mt-5">{loading ? '…' : item.count}</p>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 mt-3">
+                        Open queue <ExternalLink className="w-3 h-3" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="card mt-5 overflow-hidden">
+                  <div className="px-5 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between">
+                    <div>
+                      <h2 className="font-semibold text-[#0F172A] dark:text-slate-100">Recent bookings</h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Latest learner requests across the platform</p>
+                    </div>
+                    <Button size="xs" variant="secondary" onClick={() => navigate('/admin/bookings')}>View all</Button>
+                  </div>
+                  {bookings.length === 0 ? (
+                    <p className="p-6 text-sm text-slate-500">No bookings yet.</p>
+                  ) : (
+                    <div className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B]">
+                      {bookings.slice(0, 5).map(booking => (
+                        <div key={booking.id} className="px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                          <span className="font-medium text-[#0F172A] dark:text-slate-100">{booking.skill}</span>
+                          <span className="text-slate-500">{booking.learnerName} → {booking.providerName}</span>
+                          <span className="text-xs text-slate-400 ml-auto">{formatDate(booking.date)}</span>
+                          <Badge variant={booking.status === 'completed' ? 'teal' : booking.status === 'pending' ? 'warning' : 'indigo'}>
+                            {booking.status}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabPanel>
+
               {/* ── Skill session approvals ── */}
               <TabPanel value="approvals">
                 <div className="space-y-3">
@@ -913,6 +1000,36 @@ export function AdminDashboard() {
                       ))}
                     </div>
                   )}
+                </div>
+              </TabPanel>
+
+              {/* ── Admin settings ── */}
+              <TabPanel value="settings">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <section className="card p-5">
+                    <div className="flex items-center gap-3 mb-4">
+                      <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                      <div>
+                        <h2 className="font-semibold text-[#0F172A] dark:text-slate-100">Administrator access</h2>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Current authenticated admin account</p>
+                      </div>
+                    </div>
+                    <p className="text-sm font-medium text-[#0F172A] dark:text-slate-100">{user.name}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{user.email}</p>
+                    <Badge variant="danger" className="mt-3">Admin role</Badge>
+                  </section>
+                  <section className="card p-5">
+                    <h2 className="font-semibold text-[#0F172A] dark:text-slate-100 mb-3">Operational controls</h2>
+                    <ul className="space-y-3 text-sm text-slate-600 dark:text-slate-400">
+                      <li>Skill approvals and rejections are enforced by the database admin RPC.</li>
+                      <li>Only approved, active skill listings are publicly discoverable and bookable.</li>
+                      <li>Review administrative actions in the audit log.</li>
+                    </ul>
+                    <Button size="sm" variant="secondary" leftIcon={<FileText className="w-4 h-4" />}
+                      className="mt-4" onClick={() => navigate('/admin/audit')}>
+                      Open audit log
+                    </Button>
+                  </section>
                 </div>
               </TabPanel>
             </div>

@@ -14,7 +14,7 @@ interface ProviderCardProps {
   className?: string;
   compact?: boolean;
   isSaved?: boolean;
-  onToggleSave?: (providerId: string) => void;
+  onToggleSave?: (providerId: string) => void | Promise<void>;
 }
 
 // ── Match factor computation ──────────────────────────────────────────────────
@@ -192,8 +192,9 @@ export function ProviderCard({ provider, skillFilter, className, compact, isSave
           {onToggleSave && (
             <button
               onClick={(e) => { e.stopPropagation(); onToggleSave(provider.id); }}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
               aria-label={isSaved ? 'Remove from saved' : 'Save provider'}
+              aria-pressed={Boolean(isSaved)}
             >
               <Heart className={`w-4 h-4 transition-colors ${isSaved ? 'fill-red-500 text-red-500' : 'text-slate-400 hover:text-red-400'}`} />
             </button>

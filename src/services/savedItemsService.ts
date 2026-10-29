@@ -82,7 +82,7 @@ export async function getSavedProviderIds(userId: string): Promise<Set<string>> 
     .eq('item_type', 'provider')
     .not('provider_id', 'is', null);
 
-  if (error) return new Set();
+  if (error) throw new Error(error.message);
   return new Set((data ?? []).map(r => r.provider_id as string));
 }
 
@@ -94,6 +94,6 @@ export async function getSavedSkillIds(userId: string): Promise<Set<string>> {
     .eq('item_type', 'skill')
     .not('skill_id', 'is', null);
 
-  if (error) return new Set();
+  if (error) throw new Error(error.message);
   return new Set((data ?? []).map(r => r.skill_id as string));
 }

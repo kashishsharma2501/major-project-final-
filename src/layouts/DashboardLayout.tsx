@@ -13,9 +13,10 @@ interface DashboardLayoutProps {
   title?: string;
   subtitle?: string;
   actions?: React.ReactNode;
+  flush?: boolean;
 }
 
-export function DashboardLayout({ children, title, subtitle, actions }: DashboardLayoutProps) {
+export function DashboardLayout({ children, title, subtitle, actions, flush = false }: DashboardLayoutProps) {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -96,7 +97,7 @@ export function DashboardLayout({ children, title, subtitle, actions }: Dashboar
               </div>
             </div>
           )}
-          <div className={cn('px-4 lg:px-6 pb-8', title ? '' : 'pt-6')}>
+          <div className={cn(!flush && 'px-4 lg:px-6 pb-8', !title && !flush && 'pt-6')}>
             {children}
           </div>
         </main>

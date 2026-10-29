@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  MapPin, Clock, Star, MessageSquare, Calendar, Shield,
+  MapPin, Clock, Star, MessageSquare, Calendar, Shield, Heart,
   Award, Users, BookOpen, ChevronDown, ChevronUp,
   Globe, CheckCircle, ExternalLink
 } from 'lucide-react';
@@ -14,8 +14,12 @@ import { MatchScore } from '@/components/ui/MatchScore';
 import { Tabs, TabList, Tab, TabPanel } from '@/components/ui/Tabs';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { getProviderById } from '@/services/providerService';
-import { getReviewsByProvider } from '@/services/reviewService';
-import type { Provider } from '@/types';
+import { getReviewsByProvider, hasReviewForBooking } from '@/services/reviewService';
+import { getBookingsByLearner } from '@/services/bookingService';
+import { useAuth } from '@/context/AuthContext';
+import { useSavedItems } from '@/hooks/useSavedItems';
+import { useToast } from '@/components/ui/Toast';
+import type { Booking, Provider } from '@/types';
 import { formatCurrency, formatDuration, formatRelativeTime, capitalise } from '@/utils/format';
 import { cn } from '@/utils/cn';
 
@@ -27,9 +31,13 @@ const DAY_LABELS: Record<string, string> = {
 export function ProviderProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { isProviderSaved, toggleProvider } = useSavedItems();
   const [bioExpanded, setBioExpanded] = useState(false);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [reviews, setReviews] = useState<Awaited<ReturnType<typeof getReviewsByProvider>>>([]);
+  const [reviewableBooking, setReviewableBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,10 +45,23 @@ export function ProviderProfilePage() {
     let cancelled = false;
     if (!id) return;
     setLoading(true);
-    Promise.all([getProviderById(id), getReviewsByProvider(id)]).then(([loadedProvider, loadedReviews]) => {
+    setReviewableBooking(null);
+    Promise.all([getProviderById(id), getReviewsByProvider(id)]).then(async ([loadedProvider, loadedReviews]) => {
       if (cancelled) return;
       setProvider(loadedProvider);
       setReviews(loadedReviews);
+      if (loadedProvider && user?.role === 'learner' && user.id) {
+        const bookings = await getBookingsByLearner(user.id);
+        const completedBookings = bookings.filter(
+          booking => booking.providerId === loadedProvider.id && booking.status === 'completed'
+        );
+        for (const booking of completedBookings) {
+          if (!await hasReviewForBooking(booking.id)) {
+            if (!cancelled) setReviewableBooking(booking);
+            break;
+          }
+        }
+      }
       setError(null);
     }).catch(e => {
       if (!cancelled) setError(e instanceof Error ? e.message : 'Could not load provider profile.');
@@ -48,7 +69,7 @@ export function ProviderProfilePage() {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, user?.id, user?.role]);
 
   if (loading) {
     return <PublicLayout><div className="page-container py-20 text-center" role="status">Loading provider profile…</div></PublicLayout>;
@@ -134,7 +155,39 @@ export function ProviderProfilePage() {
                   {/* Match + CTA */}
                   <div className="flex flex-col items-end gap-3">
                     {provider.matchScore && <MatchScore score={provider.matchScore} size="md" showBreakdown />}
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        leftIcon={<Heart className={`w-4 h-4 ${isProviderSaved(provider.id) ? 'fill-red-500 text-red-500' : ''}`} />}
+                        aria-pressed={isProviderSaved(provider.id)}
+                        onClick={async () => {
+                          if (!user) {
+                            toast('info', 'Sign in to save providers');
+                            navigate('/login');
+                            return;
+                          }
+                          try {
+                            const wasSaved = isProviderSaved(provider.id);
+                            await toggleProvider(provider.id);
+                            toast('success', wasSaved ? 'Provider removed from Saved' : 'Provider saved');
+                          } catch (e) {
+                            toast('error', 'Could not update saved providers', e instanceof Error ? e.message : 'Please try again.');
+                          }
+                        }}
+                      >
+                        {isProviderSaved(provider.id) ? 'Saved' : 'Save'}
+                      </Button>
+                      {reviewableBooking && (
+                        <Button
+                          variant="secondary"
+                          size="md"
+                          leftIcon={<Star className="w-4 h-4" />}
+                          onClick={() => navigate(`/dashboard/reviews?bookingId=${reviewableBooking.id}&newReview=true`)}
+                        >
+                          Write a Review
+                        </Button>
+                      )}
                       <Button variant="secondary" size="md" leftIcon={<MessageSquare className="w-4 h-4" />}
                         onClick={() => navigate(`/dashboard/messages?providerId=${provider.id}&skill=${encodeURIComponent(provider.primarySkill)}`)}>
                         Message

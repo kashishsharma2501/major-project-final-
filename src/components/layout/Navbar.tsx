@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
+import { useToast } from '@/components/ui/Toast';
 
 const navLinks = [
   { label: 'Explore Skills', href: '/explore' },
@@ -18,11 +19,13 @@ const navLinks = [
 
 export function Navbar() {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -38,6 +41,20 @@ export function Navbar() {
   }, []);
 
   const dashboardPath = user?.role === 'provider' ? '/provider' : user?.role === 'admin' ? '/admin' : '/dashboard';
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      setProfileOpen(false);
+      navigate('/', { replace: true });
+    } catch (error) {
+      toast('error', 'Could not log out', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-white/80 dark:bg-[#080E1A]/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-white/5 shadow-sm shadow-slate-900/5">
@@ -139,7 +156,8 @@ export function Navbar() {
                         </button>
                         <div className="divider my-1" />
                         <button
-                          onClick={async () => { await logout(); navigate('/'); setProfileOpen(false); }}
+                          onClick={handleLogout}
+                          disabled={loggingOut}
                           className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                         >
                           <LogOut className="w-4 h-4" /> Logout

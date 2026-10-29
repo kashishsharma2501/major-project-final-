@@ -8,6 +8,7 @@ import { cn } from '@/utils/cn';
 import { Logo } from './Logo';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/components/ui/Toast';
 
 interface NavItem {
   label: string;
@@ -59,8 +60,19 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/', { replace: true });
+      onMobileClose?.();
+    } catch (error) {
+      toast('error', 'Could not log out', error instanceof Error ? error.message : 'Please try again.');
+    }
+  };
 
   const navItems =
     user?.role === 'admin' ? adminNav :
@@ -145,7 +157,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 <p className="text-xs text-slate-500 dark:text-slate-400 capitalize">{user.role}</p>
               </div>
               <button
-                onClick={async () => { await logout(); navigate('/'); }}
+                onClick={handleLogout}
                 className="btn-ghost p-1.5 text-slate-400 hover:text-red-500"
                 aria-label="Logout"
               >

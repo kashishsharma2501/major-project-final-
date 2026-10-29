@@ -5,6 +5,7 @@ import {
   Bot, Send, BookOpen,
 } from 'lucide-react';
 import { PublicLayout } from '@/layouts/PublicLayout';
+import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { ProviderCard } from '@/components/ui/ProviderCard';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -13,6 +14,8 @@ import { cn } from '@/utils/cn';
 import { getCatalogueSkills, getCatalogueCategories, getCatalogueLoadStatus } from '@/services/catalogueService';
 import { getProviders } from '@/services/providerService';
 import { useSavedItems } from '@/hooks/useSavedItems';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/components/ui/Toast';
 import type { CatalogueSkill } from '@/data/skillCatalogue';
 import type { Provider } from '@/types';
 
@@ -42,6 +45,8 @@ interface Filters {
 export function ExplorePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user, initialising } = useAuth();
+  const { toast } = useToast();
   const showAssistant = searchParams.get('assistant') === 'true';
 
   const [filters, setFilters] = useState<Filters>({
@@ -67,7 +72,7 @@ export function ExplorePage() {
   // Catalogue data — loaded async, falls back to local TS data if DB unreachable
   const [activeSkills, setActiveSkills] = useState<CatalogueSkill[]>([]);
   const [categories, setCategories] = useState<{ name: string; icon: string; count: number }[]>([]);
-  const { isProviderSaved, toggleProvider } = useSavedItems();
+  const { isProviderSaved, toggleProvider, error: savedItemsError } = useSavedItems();
   const [catalogueLoading, setCatalogueLoading] = useState(true);
   const [catalogueFallback, setCatalogueFallback] = useState<string | null>(null);
 
@@ -86,6 +91,10 @@ export function ExplorePage() {
 
   useEffect(() => {
     let cancelled = false;
+    if (initialising) return () => { cancelled = true; };
+    setProvidersLoading(true);
+    setProvidersError(null);
+    setProviders([]);
     getProviders().then(data => {
       if (!cancelled) setProviders(data);
     }).catch(error => {
@@ -94,7 +103,7 @@ export function ExplorePage() {
       if (!cancelled) setProvidersLoading(false);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [initialising, user?.id]);
 
   const updateFilter = (key: keyof Filters, value: string | number) => {
     setLoading(true);
@@ -184,11 +193,32 @@ export function ExplorePage() {
     setFilters(f => ({ ...f, query: userMsg }));
   };
 
-  return (
-    <PublicLayout hideFooter={false}>
+  useEffect(() => {
+    if (savedItemsError) toast('error', 'Could not load saved providers', savedItemsError);
+  }, [savedItemsError, toast]);
+
+  const handleToggleSave = async (providerId: string) => {
+    if (!user) {
+      toast('info', 'Sign in to save providers');
+      navigate('/login');
+      return;
+    }
+    try {
+      const wasSaved = isProviderSaved(providerId);
+      await toggleProvider(providerId);
+      toast('success', wasSaved ? 'Provider removed from Saved' : 'Provider saved');
+    } catch (e) {
+      toast('error', 'Could not update saved providers', e instanceof Error ? e.message : 'Please try again.');
+    }
+  };
+
+  const content = (
       <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1220]">
         {/* Search header */}
-        <div className="bg-white dark:bg-[#111827] border-b border-[#E2E8F0] dark:border-[#1E293B] sticky top-16 z-30">
+        <div className={cn(
+          'bg-white dark:bg-[#111827] border-b border-[#E2E8F0] dark:border-[#1E293B] sticky z-30',
+          user ? 'top-0' : 'top-16'
+        )}>
           <div className="page-container py-4">
             <div className="flex items-center gap-3">
               <div className="flex-1 relative max-w-2xl">
@@ -502,7 +532,7 @@ export function ExplorePage() {
                   {filteredProviders.map(p => (
                     <ProviderCard key={p.id} provider={p} skillFilter={filters.query}
                       isSaved={isProviderSaved(p.id)}
-                      onToggleSave={toggleProvider} />
+                      onToggleSave={handleToggleSave} />
                   ))}
                 </div>
               )}
@@ -556,6 +586,9 @@ export function ExplorePage() {
           </div>
         </div>
       </div>
-    </PublicLayout>
   );
+
+  return user
+    ? <DashboardLayout flush>{content}</DashboardLayout>
+    : <PublicLayout hideFooter={false}>{content}</PublicLayout>;
 }

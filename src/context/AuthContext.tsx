@@ -153,49 +153,58 @@ async function fetchProfile(userId: string): Promise<AuthUser | null> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [initialising, setInitialising] = useState(true);
-  // Keep a ref to the current session so we can unsubscribe cleanly
+  const profileRequestRef = useRef(0);
+  const currentUserIdRef = useRef<string | null>(null);
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null);
 
   // ── Session initialisation and subscription ──────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
-    async function init() {
+    void (async () => {
       const sb = await getSupabase();
-
+      if (cancelled) return;
       if (!sb) {
-        // Backend not configured — stay logged out, clear loading state
         if (!cancelled) setInitialising(false);
         return;
       }
 
-      // 1. Restore any existing session from localStorage
-      const { data: { session } } = await sb.auth.getSession();
-      if (!cancelled && session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        if (!cancelled) setUser(profile);
-      }
-
-      // 2. Subscribe to future auth state changes (login, logout, token refresh)
       const { data: { subscription } } = sb.auth.onAuthStateChange(
-        async (_event: string, session: Session | null) => {
-          if (session?.user) {
-            const profile = await fetchProfile(session.user.id);
-            setUser(profile);
-          } else {
+        (event: string, session: Session | null) => {
+          const requestId = ++profileRequestRef.current;
+          if (!session?.user) {
+            currentUserIdRef.current = null;
             setUser(null);
+            if (event === 'INITIAL_SESSION' || event === 'SIGNED_OUT') setInitialising(false);
+            return;
           }
+
+          if (event === 'TOKEN_REFRESHED' && currentUserIdRef.current === session.user.id) return;
+
+          if (event !== 'TOKEN_REFRESHED') setInitialising(true);
+
+          // Supabase auth callbacks run under its auth lock. Defer profile I/O
+          // until after the callback returns to avoid blocking auth operations.
+          window.setTimeout(() => {
+            void fetchProfile(session.user.id).then(profile => {
+              if (cancelled || requestId !== profileRequestRef.current) return;
+              currentUserIdRef.current = profile?.id ?? null;
+              setUser(profile);
+            }).finally(() => {
+              if (!cancelled && requestId === profileRequestRef.current) {
+                setInitialising(false);
+              }
+            });
+          }, 0);
         }
       );
 
       subscriptionRef.current = subscription;
-      if (!cancelled) setInitialising(false);
-    }
-
-    init();
+    })();
 
     return () => {
       cancelled = true;
+      profileRequestRef.current += 1;
       subscriptionRef.current?.unsubscribe();
     };
   }, []);
@@ -273,7 +282,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── logout ───────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     const sb = await getSupabase();
-    if (sb) await sb.auth.signOut();
+    if (sb) {
+      const { error } = await sb.auth.signOut();
+      if (error) throw error;
+    }
+    profileRequestRef.current += 1;
+    currentUserIdRef.current = null;
     setUser(null);
   }, []);
 

@@ -51,6 +51,7 @@ export function BookingPage() {
   const [bookingStatus] = useState<'pending' | 'accepted'>('pending');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [bookingCreated, setBookingCreated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +81,7 @@ export function BookingPage() {
   }
 
   const skill = provider.skills[selectedSkillIndex];
+  const bookingMode = skill.learningMode === 'either' ? mode : skill.learningMode;
   const calDays = generateCalendarDays(calYear, calMonth);
 
   // Available slots for selected day
@@ -94,6 +96,7 @@ export function BookingPage() {
     if (!provider || !selectedDate || !selectedTime || !user?.id) return;
     setSubmitting(true);
     setPaymentError(null);
+    setBookingCreated(false);
     try {
       // 1. Look up provider_profiles.id
       const providerProfileId = await getOrCreateProviderProfile(provider.userId, provider.city);
@@ -112,12 +115,13 @@ export function BookingPage() {
         booking_date: dateStr,
         booking_time: selectedTime,
         duration_minutes: skill.sessionDurationMinutes,
-        mode,
-        location: mode === 'offline' ? provider.location : undefined,
+        mode: bookingMode,
+        location: bookingMode === 'offline' ? provider.location : undefined,
         price: skill.pricePerSession,
         notes: notes.trim() || undefined,
       });
 
+      setBookingCreated(true);
       setSubmitting(false);
 
       // 3. Open Razorpay checkout — booking is only confirmed after payment
@@ -203,7 +207,7 @@ export function BookingPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Mode</span>
-                  <span className="font-medium text-[#0F172A] dark:text-slate-100 capitalize">{mode}</span>
+                  <span className="font-medium text-[#0F172A] dark:text-slate-100 capitalize">{bookingMode}</span>
                 </div>
                 <div className="flex justify-between border-t border-[#E2E8F0] dark:border-[#1E293B] pt-2 mt-2">
                   <span className="font-semibold text-[#0F172A] dark:text-slate-100">Total</span>
@@ -406,7 +410,7 @@ export function BookingPage() {
                       { icon: <BookOpen className="w-4 h-4 text-indigo-500" />, label: 'Skill', value: skill.skillName },
                       { icon: <Calendar className="w-4 h-4 text-teal-500" />, label: 'Date', value: `${selectedDate} ${MONTHS[calMonth]} ${calYear}` },
                       { icon: <Clock className="w-4 h-4 text-amber-500" />, label: 'Time', value: selectedTime ? `${selectedTime} · ${formatDuration(skill.sessionDurationMinutes)}` : '—' },
-                      { icon: <MapPin className="w-4 h-4 text-slate-500" />, label: 'Mode', value: capitalise(mode) + (mode === 'offline' ? ` · ${provider.location}` : ' · Video call') },
+                      { icon: <MapPin className="w-4 h-4 text-slate-500" />, label: 'Mode', value: capitalise(bookingMode) + (bookingMode === 'offline' ? ` · ${provider.location}` : ' · Video call') },
                       { icon: <CreditCard className="w-4 h-4 text-green-500" />, label: 'Price', value: formatCurrency(skill.pricePerSession) },
                     ].map(({ icon, label, value }) => (
                       <div key={label} className="flex items-center gap-3">
@@ -442,18 +446,14 @@ export function BookingPage() {
                 <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-sm text-red-700 dark:text-red-400" role="alert">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold">Payment not completed</p>
+                    <p className="font-semibold">{bookingCreated ? 'Payment not completed' : 'Booking could not be created'}</p>
                     <p className="text-xs mt-0.5">{paymentError}</p>
-                    <p className="text-xs mt-1 text-red-500 dark:text-red-500">Your booking request has been created but will remain pending until payment is made.</p>
+                    <p className="text-xs mt-1 text-red-500 dark:text-red-500">
+                      {bookingCreated
+                        ? 'Your booking request has been created but will remain pending until payment is made.'
+                        : 'No booking was created. Check the selected session mode and try again.'}
+                    </p>
                   </div>
-                </div>
-              )}
-
-              {/* Test mode notice on review step */}
-              {step === 3 && !paymentError && (
-                <div className="flex items-center gap-2 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 text-xs text-indigo-700 dark:text-indigo-400">
-                  <ShieldCheck className="w-4 h-4 shrink-0" />
-                  <span><strong>Test Mode:</strong> Use card <code className="bg-indigo-100 dark:bg-indigo-950/60 px-1 rounded">4111 1111 1111 1111</code>, any future expiry, any CVV. OTP: <code className="bg-indigo-100 dark:bg-indigo-950/60 px-1 rounded">1234</code>.</span>
                 </div>
               )}
 
@@ -480,4 +480,3 @@ export function BookingPage() {
     </PublicLayout>
   );
 }
-

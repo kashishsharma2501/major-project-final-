@@ -14,22 +14,36 @@ import {
 } from '@/services/savedItemsService';
 
 export function useSavedItems() {
-  const { user } = useAuth();
+  const { user, initialising } = useAuth();
   const [savedProviders, setSavedProviders] = useState<Set<string>>(new Set());
   const [savedSkills, setSavedSkills] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!user?.id) { setLoading(false); return; }
+    if (initialising) return;
+    if (!user?.id) {
+      setSavedProviders(new Set());
+      setSavedSkills(new Set());
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    const [provIds, skillIds] = await Promise.all([
-      getSavedProviderIds(user.id),
-      getSavedSkillIds(user.id),
-    ]);
-    setSavedProviders(provIds);
-    setSavedSkills(skillIds);
-    setLoading(false);
-  }, [user?.id]);
+    setError(null);
+    try {
+      const [provIds, skillIds] = await Promise.all([
+        getSavedProviderIds(user.id),
+        getSavedSkillIds(user.id),
+      ]);
+      setSavedProviders(provIds);
+      setSavedSkills(skillIds);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load saved items.');
+    } finally {
+      setLoading(false);
+    }
+  }, [initialising, user?.id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -44,13 +58,14 @@ export function useSavedItems() {
     });
     try {
       await toggleSaveProvider(user.id, providerProfileId, isSaved);
-    } catch {
+    } catch (e) {
       // Rollback on failure
       setSavedProviders(prev => {
         const next = new Set(prev);
         isSaved ? next.add(providerProfileId) : next.delete(providerProfileId);
         return next;
       });
+      throw e;
     }
   }, [user?.id, savedProviders]);
 
@@ -65,12 +80,13 @@ export function useSavedItems() {
     try {
       if (isSaved) await unsaveSkill(user.id, skillId);
       else await saveSkill(user.id, skillId);
-    } catch {
+    } catch (e) {
       setSavedSkills(prev => {
         const next = new Set(prev);
         isSaved ? next.add(skillId) : next.delete(skillId);
         return next;
       });
+      throw e;
     }
   }, [user?.id, savedSkills]);
 
@@ -78,6 +94,7 @@ export function useSavedItems() {
     savedProviders,
     savedSkills,
     loading,
+    error,
     toggleProvider,
     toggleSkill,
     isProviderSaved: (id: string) => savedProviders.has(id),
