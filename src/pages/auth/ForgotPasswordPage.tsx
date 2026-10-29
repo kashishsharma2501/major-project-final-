@@ -4,8 +4,11 @@ import { Mail, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { useAuth } from '@/context/AuthContext';
 
 export function ForgotPasswordPage() {
+  const { resetPassword } = useAuth();
+
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -19,8 +22,19 @@ export function ForgotPasswordPage() {
     }
     setError('');
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
+
+    // Real Supabase password reset — sends an actual email.
+    // Supabase does not reveal whether the email exists (prevents enumeration).
+    // The UI always shows the "check your email" state on success.
+    const result = await resetPassword(email);
+
     setLoading(false);
+
+    if (result.error) {
+      setError(result.message ?? 'Something went wrong. Please try again.');
+      return;
+    }
+
     setSent(true);
   };
 
@@ -41,7 +55,6 @@ export function ForgotPasswordPage() {
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
                 Enter the email address linked to your account and we'll send you a password reset link.
               </p>
-
               <form onSubmit={handleSubmit} noValidate className="space-y-4">
                 <Input
                   label="Email address"
@@ -65,13 +78,13 @@ export function ForgotPasswordPage() {
               </div>
               <h2 className="text-xl font-bold text-[#0F172A] dark:text-slate-100 mb-2">Check your email</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">
-                A password reset link has been sent to
+                If an account exists for
               </p>
-              <p className="font-semibold text-[#0F172A] dark:text-slate-100 mb-6">{email}</p>
-              <p className="text-xs text-slate-400 mb-6">
-                The link expires in 30 minutes. Check your spam folder if you don't see it.
+              <p className="font-semibold text-[#0F172A] dark:text-slate-100 mb-4">{email}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                a reset link has been sent. The link expires in 1 hour. Check your spam folder if you don't see it.
               </p>
-              <Button variant="ghost" className="text-sm" onClick={() => setSent(false)}>
+              <Button variant="ghost" className="text-sm" onClick={() => { setSent(false); setEmail(''); }}>
                 Try a different email
               </Button>
             </div>

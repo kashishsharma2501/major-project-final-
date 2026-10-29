@@ -3,6 +3,7 @@ import type { Conversation } from '@/types';
 export const mockConversations: Conversation[] = [
   {
     id: 'conv1',
+    ownerId: 'u1',
     participantId: 'p1',
     participantName: 'Simran Sharma',
     participantAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Simran&backgroundColor=b6e3f4',
@@ -81,6 +82,7 @@ export const mockConversations: Conversation[] = [
   },
   {
     id: 'conv2',
+    ownerId: 'u1',
     participantId: 'p2',
     participantName: 'Riya Kapoor',
     participantAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Riya&backgroundColor=ffdfbf',
@@ -116,6 +118,7 @@ export const mockConversations: Conversation[] = [
   },
   {
     id: 'conv3',
+    ownerId: 'u1',
     participantId: 'p4',
     participantName: 'Priya Nair',
     participantAvatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Priya&backgroundColor=d1f7c4',

@@ -3,6 +3,7 @@ import type { Notification } from '@/types';
 export const mockNotifications: Notification[] = [
   {
     id: 'n1',
+    recipientId: 'u1',
     type: 'booking_accepted',
     title: 'Booking Confirmed',
     body: 'Simran Sharma accepted your Photography session for Saturday, 15 Aug at 3:00 PM.',
@@ -14,6 +15,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'n2',
+    recipientId: 'u1',
     type: 'new_message',
     title: 'New message from Simran Sharma',
     body: 'See you on Saturday at 3 PM! Please bring your camera.',
@@ -25,6 +27,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'n3',
+    recipientId: 'u1',
     type: 'session_reminder',
     title: 'Session reminder',
     body: 'Your Photography session with Simran Sharma is in 2 days. Location: Model Town, Ludhiana.',
@@ -36,6 +39,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'n4',
+    recipientId: 'u2',
     type: 'booking_request',
     title: 'New booking request',
     body: 'Meera Joshi requested a Photography session on 16 Aug at 10:00 AM.',
@@ -47,6 +51,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'n5',
+    recipientId: 'u2',
     type: 'new_review',
     title: 'New review received',
     body: 'Tanveer Singh left you a 5-star review for your Photography session.',
@@ -58,6 +63,7 @@ export const mockNotifications: Notification[] = [
   },
   {
     id: 'n6',
+    recipientId: 'u2',
     type: 'system',
     title: 'Profile verification complete',
     body: 'Your profile has been verified. You now have a verified badge visible to learners.',

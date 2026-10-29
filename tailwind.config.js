@@ -72,6 +72,10 @@ export default {
         'card': '0 4px 16px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)',
         'elevated': '0 8px 32px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04)',
         'modal': '0 20px 60px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.08)',
+        'glow-indigo': '0 0 40px -10px rgba(99,102,241,0.5)',
+        'glow-violet': '0 0 40px -10px rgba(124,58,237,0.5)',
+        'glow-teal': '0 0 40px -10px rgba(20,184,166,0.4)',
+        'inner-indigo': 'inset 0 1px 0 rgba(99,102,241,0.2)',
       },
       borderRadius: {
         'xl2': '1rem',

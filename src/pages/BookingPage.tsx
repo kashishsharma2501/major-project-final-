@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Calendar, Clock, MapPin, CheckCircle, ArrowLeft, ArrowRight, CreditCard, BookOpen } from 'lucide-react';
+import { Calendar, Clock, MapPin, CheckCircle, ArrowLeft, ArrowRight, CreditCard, BookOpen, IndianRupee, AlertCircle, ShieldCheck } from 'lucide-react';
 import { PublicLayout } from '@/layouts/PublicLayout';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { mockProviders } from '@/data/mockProviders';
+import { getProviderById } from '@/services/providerService';
+import type { Provider } from '@/types';
 import { formatCurrency, formatDuration, capitalise } from '@/utils/format';
 import { cn } from '@/utils/cn';
+import { useAuth } from '@/context/AuthContext';
+import { createBooking } from '@/services/bookingService';
+import { getOrCreateProviderProfile } from '@/services/providerSkillsService';
+import { initiatePayment } from '@/services/paymentService';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS_OF_WEEK = ['Su','Mo','Tu','We','Th','Fr','Sa'];
@@ -27,8 +32,11 @@ export function BookingPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const provider = mockProviders.find((p) => p.id === id);
+  const [provider, setProvider] = useState<Provider | null>(null);
+  const [providerLoading, setProviderLoading] = useState(true);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0);
   const today = new Date();
@@ -40,13 +48,32 @@ export function BookingPage() {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [bookingStatus, setBookingStatus] = useState<'pending' | 'accepted'>('pending');
+  const [bookingStatus] = useState<'pending' | 'accepted'>('pending');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentId, setPaymentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!id) return;
+    getProviderById(id).then(result => {
+      if (!cancelled) setProvider(result);
+    }).catch(error => {
+      if (!cancelled) setProviderError(error instanceof Error ? error.message : 'Could not load provider.');
+    }).finally(() => {
+      if (!cancelled) setProviderLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  if (providerLoading) {
+    return <PublicLayout><div className="page-container py-20 text-center" role="status">Loading booking details…</div></PublicLayout>;
+  }
 
   if (!provider) {
     return (
       <PublicLayout>
         <div className="page-container py-20">
-          <EmptyState title="Provider not found" action={{ label: 'Browse Providers', onClick: () => navigate('/explore') }} />
+          <EmptyState title={providerError ? 'Could not load provider' : 'Provider not found'} description={providerError ?? undefined} action={{ label: 'Browse Providers', onClick: () => navigate('/explore') }} />
         </div>
       </PublicLayout>
     );
@@ -64,12 +91,56 @@ export function BookingPage() {
     : [];
 
   const handleConfirm = async () => {
+    if (!provider || !selectedDate || !selectedTime || !user?.id) return;
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setSubmitting(false);
-    setConfirmed(true);
-    // Simulate provider accepting after 1.5s
-    setTimeout(() => setBookingStatus('accepted'), 1500);
+    setPaymentError(null);
+    try {
+      // 1. Look up provider_profiles.id
+      const providerProfileId = await getOrCreateProviderProfile(provider.userId, provider.city);
+      if (!providerProfileId) throw new Error('Provider profile not found.');
+
+      const skill = provider.skills[selectedSkillIndex];
+      const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(selectedDate).padStart(2, '0')}`;
+
+      // 2. Create the booking record (status = 'pending' initially)
+      const booking = await createBooking({
+        learner_id: user.id,
+        provider_id: providerProfileId,
+        provider_skill_id: skill.skillId,
+        skill_name: skill.skillName,
+        skill_category: skill.category,
+        booking_date: dateStr,
+        booking_time: selectedTime,
+        duration_minutes: skill.sessionDurationMinutes,
+        mode,
+        location: mode === 'offline' ? provider.location : undefined,
+        price: skill.pricePerSession,
+        notes: notes.trim() || undefined,
+      });
+
+      setSubmitting(false);
+
+      // 3. Open Razorpay checkout — booking is only confirmed after payment
+      const paymentResult = await initiatePayment({
+        bookingId: booking.id,
+        amount: skill.pricePerSession,
+        providerName: provider.name,
+        skillName: skill.skillName,
+        userEmail: user.email,
+        userName: user.name,
+      });
+
+      if (paymentResult.success) {
+        setPaymentId(paymentResult.payment_id ?? null);
+        setConfirmed(true);
+      } else {
+        // Payment failed or was cancelled — show error, booking remains pending
+        setPaymentError(paymentResult.error ?? 'Payment was not completed.');
+      }
+    } catch (e: any) {
+      setSubmitting(false);
+      setPaymentError(e.message ?? 'Something went wrong. Please try again.');
+    }
   };
 
   const canNext = () => {
@@ -83,38 +154,30 @@ export function BookingPage() {
   if (confirmed) {
     return (
       <PublicLayout>
-        <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1220] flex items-center justify-center p-6">
+        <div className="min-h-screen bg-[#F4F6FB] dark:bg-[#080E1A] flex items-center justify-center p-6">
           <div className="max-w-md w-full text-center">
-            <div className={cn(
-              'w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 transition-colors duration-500',
-              bookingStatus === 'accepted'
-                ? 'bg-green-50 dark:bg-green-950/30'
-                : 'bg-amber-50 dark:bg-amber-950/30'
-            )}>
-              <CheckCircle className={cn('w-10 h-10 transition-colors duration-500',
-                bookingStatus === 'accepted' ? 'text-green-600 dark:text-green-400' : 'text-amber-500 dark:text-amber-400'
-              )} />
+            {/* Success icon */}
+            <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-green-500/30">
+              <CheckCircle className="w-10 h-10 text-white" />
             </div>
 
             <h1 className="text-2xl font-bold text-[#0F172A] dark:text-slate-100 mb-2">
-              {bookingStatus === 'accepted' ? 'Session Confirmed!' : 'Request Sent!'}
+              Payment Confirmed! 🎉
             </h1>
-            <p className="text-slate-500 dark:text-slate-400 mb-6">
-              {bookingStatus === 'accepted'
-                ? `${provider.name} has confirmed your session. Check your messages for details.`
-                : `Your booking request has been sent to ${provider.name}. You'll be notified when they respond.`}
+            <p className="text-slate-500 dark:text-slate-400 mb-2">
+              Your payment was successful. Your booking request has been sent to{' '}
+              <strong>{provider.name}</strong>. You'll be notified when they accept.
             </p>
 
-            {bookingStatus === 'pending' && (
-              <div className="flex items-center justify-center gap-2 mb-6">
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                <span className="text-xs text-slate-400 ml-1">Waiting for confirmation</span>
+            {/* Payment ID badge */}
+            {paymentId && (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900 text-xs text-green-700 dark:text-green-400 mb-5 font-mono">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Payment ID: {paymentId}
               </div>
             )}
 
-            {/* Booking summary card */}
+            {/* Booking summary */}
             <div className="card p-5 text-left mb-6">
               <div className="flex items-center gap-3 mb-4">
                 <Avatar src={provider.avatar} name={provider.name} size="md" />
@@ -153,7 +216,7 @@ export function BookingPage() {
               <Button variant="secondary" className="flex-1" onClick={() => navigate('/dashboard/bookings')}>
                 View Bookings
               </Button>
-              <Button variant="primary" className="flex-1" onClick={() => navigate('/dashboard/messages')}>
+              <Button variant="primary" className="flex-1" onClick={() => navigate(`/dashboard/messages?providerId=${provider.id}&skill=${encodeURIComponent(skill.skillName)}`)}>
                 Message Provider
               </Button>
             </div>
@@ -373,21 +436,43 @@ export function BookingPage() {
             </div>
 
             {/* Navigation */}
-            <div className="flex items-center justify-between mt-5">
-              <Button variant="ghost" leftIcon={<ArrowLeft className="w-4 h-4" />}
-                onClick={() => step > 0 ? setStep(s => s - 1) : navigate(`/providers/${id}`)}>
-                Back
-              </Button>
-              {step < 3 ? (
-                <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}
-                  disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
-                  Continue
-                </Button>
-              ) : (
-                <Button variant="primary" size="lg" loading={submitting} onClick={handleConfirm}>
-                  {!submitting && <>Confirm Request <CheckCircle className="w-4 h-4" /></>}
-                </Button>
+            <div className="flex flex-col gap-3 mt-5">
+              {/* Payment error */}
+              {paymentError && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-sm text-red-700 dark:text-red-400" role="alert">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">Payment not completed</p>
+                    <p className="text-xs mt-0.5">{paymentError}</p>
+                    <p className="text-xs mt-1 text-red-500 dark:text-red-500">Your booking request has been created but will remain pending until payment is made.</p>
+                  </div>
+                </div>
               )}
+
+              {/* Test mode notice on review step */}
+              {step === 3 && !paymentError && (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 text-xs text-indigo-700 dark:text-indigo-400">
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span><strong>Test Mode:</strong> Use card <code className="bg-indigo-100 dark:bg-indigo-950/60 px-1 rounded">4111 1111 1111 1111</code>, any future expiry, any CVV. OTP: <code className="bg-indigo-100 dark:bg-indigo-950/60 px-1 rounded">1234</code>.</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <Button variant="ghost" leftIcon={<ArrowLeft className="w-4 h-4" />}
+                  onClick={() => step > 0 ? setStep(s => s - 1) : navigate(`/providers/${id}`)}>
+                  Back
+                </Button>
+                {step < 3 ? (
+                  <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}
+                    disabled={!canNext()} onClick={() => setStep(s => s + 1)}>
+                    Continue
+                  </Button>
+                ) : (
+                  <Button variant="primary" size="lg" loading={submitting} onClick={handleConfirm}>
+                    {!submitting && <><IndianRupee className="w-4 h-4" /> Pay {provider && formatCurrency(provider.skills[selectedSkillIndex]?.pricePerSession ?? 0)} & Request</>}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -395,5 +480,4 @@ export function BookingPage() {
     </PublicLayout>
   );
 }
-
 

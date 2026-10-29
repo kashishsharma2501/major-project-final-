@@ -8,11 +8,12 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "predeploy": "VITE_BASE_PATH=/skillshare-phase-I-majorproject/ tsc -b && VITE_BASE_PATH=/skillshare-phase-I-majorproject/ vite build",
+    "predeploy": "VITE_BASE_PATH=/skill-share/ tsc -b && VITE_BASE_PATH=/skill-share/ vite build",
     "deploy": "gh-pages -d dist -m 'Deploy SkillShare Local frontend'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
+    "@supabase/supabase-js": "^2.50.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^11.12.0",

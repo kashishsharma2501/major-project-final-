@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { Clock, Plus, Trash2, Save, Info } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Clock, Plus, Trash2, Save, Info, RefreshCw } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/utils/cn';
-import { mockProviders } from '@/data/mockProviders';
+import { supabase } from '@/lib/supabase';
+import { getOrCreateProviderProfile } from '@/services/providerSkillsService';
 import type { Availability } from '@/types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -21,7 +24,6 @@ const ALL_DAYS: { key: DayKey; label: string; short: string }[] = [
   { key: 'sunday',   label: 'Sunday',    short: 'Sun' },
 ];
 
-// Suggested time slots a provider can pick from
 const SUGGESTED_SLOTS = [
   '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
   '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
@@ -35,7 +37,7 @@ function formatSlot(slot: string): string {
   return `${display}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── DayRow sub-component ──────────────────────────────────────────────────────
 
 interface DayRowProps {
   day: { key: DayKey; label: string; short: string };
@@ -48,20 +50,16 @@ interface DayRowProps {
 
 function DayRow({ day, slots, enabled, onToggle, onAddSlot, onRemoveSlot }: DayRowProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const remaining = SUGGESTED_SLOTS.filter((s) => !slots.includes(s));
+  const remaining = SUGGESTED_SLOTS.filter(s => !slots.includes(s));
 
   return (
-    <div
-      className={cn(
-        'rounded-xl border transition-colors',
-        enabled
-          ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/10'
-          : 'border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#111827]'
-      )}
-    >
-      {/* Day header */}
+    <div className={cn(
+      'rounded-xl border transition-colors',
+      enabled
+        ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/10'
+        : 'border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#111827]'
+    )}>
       <div className="flex items-center gap-3 px-4 py-3">
-        {/* Toggle */}
         <button
           role="switch"
           aria-checked={enabled}
@@ -72,36 +70,26 @@ function DayRow({ day, slots, enabled, onToggle, onAddSlot, onRemoveSlot }: DayR
           )}
           aria-label={`${enabled ? 'Disable' : 'Enable'} ${day.label}`}
         >
-          <span
-            className={cn(
-              'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
-              enabled && 'translate-x-5'
-            )}
-          />
+          <span className={cn(
+            'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+            enabled && 'translate-x-5'
+          )} />
         </button>
 
-        <span
-          className={cn(
-            'text-sm font-semibold w-24 shrink-0',
-            enabled
-              ? 'text-[#0F172A] dark:text-slate-100'
-              : 'text-slate-400 dark:text-slate-500'
-          )}
-        >
+        <span className={cn(
+          'text-sm font-semibold w-24 shrink-0',
+          enabled ? 'text-[#0F172A] dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'
+        )}>
           {day.label}
         </span>
 
-        {/* Slot chips */}
         {enabled && (
           <div className="flex items-center gap-2 flex-wrap flex-1">
             {slots.length === 0 && (
               <span className="text-xs text-slate-400 italic">No slots added</span>
             )}
-            {slots.sort().map((slot) => (
-              <span
-                key={slot}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-950/40 text-xs font-medium text-indigo-700 dark:text-indigo-300"
-              >
+            {slots.sort().map(slot => (
+              <span key={slot} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-950/40 text-xs font-medium text-indigo-700 dark:text-indigo-300">
                 <Clock className="w-3 h-3" />
                 {formatSlot(slot)}
                 <button
@@ -120,7 +108,6 @@ function DayRow({ day, slots, enabled, onToggle, onAddSlot, onRemoveSlot }: DayR
           <span className="text-xs text-slate-400 dark:text-slate-500 italic">Unavailable</span>
         )}
 
-        {/* Add slot */}
         {enabled && (
           <div className="relative shrink-0 ml-auto">
             <Button
@@ -134,7 +121,7 @@ function DayRow({ day, slots, enabled, onToggle, onAddSlot, onRemoveSlot }: DayR
             </Button>
             {pickerOpen && remaining.length > 0 && (
               <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-[#111827] border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl shadow-elevated p-2 grid grid-cols-3 gap-1 w-44">
-                {remaining.map((slot) => (
+                {remaining.map(slot => (
                   <button
                     key={slot}
                     onClick={() => { onAddSlot(slot); setPickerOpen(false); }}
@@ -154,207 +141,197 @@ function DayRow({ day, slots, enabled, onToggle, onAddSlot, onRemoveSlot }: DayR
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const provider = mockProviders.find((p) => p.id === 'p1')!;
+const EMPTY_SCHEDULE: Record<DayKey, string[]> = {
+  monday: [], tuesday: [], wednesday: [], thursday: [],
+  friday: [], saturday: [], sunday: [],
+};
 
 export function ProviderAvailabilityPage() {
+  const { user } = useAuth();
   const { toast } = useToast();
 
-  // Build initial state: enabled days + their slots
-  const [schedule, setSchedule] = useState<Record<DayKey, string[]>>(() => {
-    const initial: Record<DayKey, string[]> = {
-      monday: [], tuesday: [], wednesday: [], thursday: [],
-      friday: [], saturday: [], sunday: [],
-    };
-    provider.availability.forEach((a) => {
-      initial[a.day] = [...a.slots];
-    });
-    return initial;
-  });
-
-  const [enabledDays, setEnabledDays] = useState<Set<DayKey>>(() => {
-    const s = new Set<DayKey>();
-    provider.availability.forEach((a) => s.add(a.day));
-    return s;
-  });
-
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [schedule, setSchedule] = useState<Record<DayKey, string[]>>(EMPTY_SCHEDULE);
+  const [enabledDays, setEnabledDays] = useState<Set<DayKey>>(new Set());
+
+  // ── Load ──────────────────────────────────────────────────────────────
+  const load = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const pid = await getOrCreateProviderProfile(user.id, user.city);
+      if (!pid) throw new Error('Could not initialise provider profile.');
+      setProviderId(pid);
+
+      const { data, error } = await supabase
+        .from('provider_availability')
+        .select('day, slots')
+        .eq('provider_id', pid);
+
+      if (error) throw new Error(error.message);
+
+      const newSchedule = { ...EMPTY_SCHEDULE };
+      const newEnabled = new Set<DayKey>();
+      (data ?? []).forEach((row: { day: DayKey; slots: string[] }) => {
+        newSchedule[row.day] = row.slots ?? [];
+        if ((row.slots ?? []).length > 0) newEnabled.add(row.day);
+      });
+      setSchedule(newSchedule);
+      setEnabledDays(newEnabled);
+    } catch (e: any) {
+      setLoadError(e.message ?? 'Failed to load availability.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, user?.city]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ── Slot helpers ──────────────────────────────────────────────────────
   const toggleDay = (day: DayKey) => {
-    setEnabledDays((prev) => {
+    setEnabledDays(prev => {
       const next = new Set(prev);
-      if (next.has(day)) {
-        next.delete(day);
-      } else {
-        next.add(day);
-      }
+      next.has(day) ? next.delete(day) : next.add(day);
       return next;
     });
   };
 
-  const addSlot = (day: DayKey, slot: string) => {
-    setSchedule((prev) => ({
-      ...prev,
-      [day]: [...prev[day], slot].sort(),
-    }));
-  };
+  const addSlot = (day: DayKey, slot: string) =>
+    setSchedule(prev => ({ ...prev, [day]: [...prev[day], slot].sort() }));
 
-  const removeSlot = (day: DayKey, slot: string) => {
-    setSchedule((prev) => ({
-      ...prev,
-      [day]: prev[day].filter((s) => s !== slot),
-    }));
-  };
+  const removeSlot = (day: DayKey, slot: string) =>
+    setSchedule(prev => ({ ...prev, [day]: prev[day].filter(s => s !== slot) }));
 
-  const totalSlots = Array.from(enabledDays).reduce(
-    (sum, day) => sum + schedule[day].length,
-    0
-  );
+  const totalSlots = Array.from(enabledDays).reduce((sum, day) => sum + schedule[day].length, 0);
 
+  // ── Save ──────────────────────────────────────────────────────────────
   const handleSave = async () => {
+    if (!providerId) return;
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setSaving(false);
-    toast('success', 'Availability saved', 'Learners can now book on your available days.');
+    try {
+      const rows = ALL_DAYS.map(({ key }) => ({
+        provider_id: providerId,
+        day: key,
+        slots: enabledDays.has(key) ? schedule[key] : [],
+      }));
+      const { error } = await supabase
+        .from('provider_availability')
+        .upsert(rows, { onConflict: 'provider_id,day' });
+      if (error) throw new Error(error.message);
+      toast('success', 'Availability saved', 'Learners can now book on your available days.');
+    } catch (e: any) {
+      toast('error', 'Save failed', e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const clearAll = () => {
     setEnabledDays(new Set());
-    setSchedule({
-      monday: [], tuesday: [], wednesday: [], thursday: [],
-      friday: [], saturday: [], sunday: [],
-    });
-    toast('info', 'Schedule cleared');
+    setSchedule({ ...EMPTY_SCHEDULE });
+    toast('info', 'Schedule cleared — save to persist.');
   };
 
-  // Quick-fill presets
   const applyPreset = (preset: 'weekdays' | 'weekends' | 'evenings') => {
+    const defaultSlots = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
+    const eveningSlots = ['17:00', '18:00', '19:00', '20:00'];
+    const weekdayKeys: DayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    const weekendKeys: DayKey[] = ['saturday', 'sunday'];
+
     if (preset === 'weekdays') {
-      const days: DayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-      setEnabledDays(new Set(days));
-      setSchedule((prev) => {
-        const next = { ...prev };
-        days.forEach((d) => { if (next[d].length === 0) next[d] = ['09:00', '11:00', '14:00']; });
-        return next;
-      });
+      setEnabledDays(new Set(weekdayKeys));
+      setSchedule(prev => { const n = { ...prev }; weekdayKeys.forEach(d => { n[d] = [...defaultSlots]; }); return n; });
     } else if (preset === 'weekends') {
-      const days: DayKey[] = ['saturday', 'sunday'];
-      setEnabledDays(new Set(days));
-      setSchedule((prev) => {
-        const next = { ...prev };
-        days.forEach((d) => { if (next[d].length === 0) next[d] = ['10:00', '12:00', '14:00', '16:00']; });
-        return next;
-      });
+      setEnabledDays(new Set(weekendKeys));
+      setSchedule(prev => { const n = { ...prev }; weekendKeys.forEach(d => { n[d] = [...defaultSlots]; }); return n; });
     } else {
-      const days: DayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-      setEnabledDays(new Set(days));
-      setSchedule((prev) => {
-        const next = { ...prev };
-        days.forEach((d) => { if (next[d].length === 0) next[d] = ['17:00', '18:00', '19:00']; });
-        return next;
-      });
+      const all = [...weekdayKeys, ...weekendKeys];
+      setEnabledDays(new Set(all));
+      setSchedule(prev => { const n = { ...prev }; all.forEach(d => { n[d] = [...eveningSlots]; }); return n; });
     }
-    toast('info', 'Preset applied — adjust as needed');
+    toast('info', 'Preset applied — save to persist.');
   };
+
+  // ── Render ────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <DashboardLayout title="Availability" subtitle="Set the days and times you're available to teach">
+        <div className="flex items-center justify-center py-16">
+          <div className="w-8 h-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <DashboardLayout title="Availability" subtitle="Set the days and times you're available to teach">
+        <EmptyState
+          icon={<RefreshCw className="w-6 h-6" />}
+          title="Could not load availability"
+          description={loadError}
+          action={{ label: 'Try Again', onClick: load }}
+        />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout
       title="Availability"
-      subtitle="Set the days and times learners can book sessions with you"
+      subtitle="Set the days and times you're available to teach"
       actions={
-        <Button
-          variant="primary"
-          leftIcon={<Save className="w-4 h-4" />}
-          onClick={handleSave}
-          loading={saving}
-        >
-          {!saving && 'Save Schedule'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">
+            {totalSlots} slot{totalSlots !== 1 ? 's' : ''} set
+          </span>
+          <Button variant="primary" leftIcon={<Save className="w-4 h-4" />} onClick={handleSave} loading={saving}>
+            {!saving && 'Save Availability'}
+          </Button>
+        </div>
       }
     >
-      <div className="max-w-3xl space-y-6">
-
-        {/* Info banner */}
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900">
-          <Info className="w-4 h-4 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
-          <p className="text-sm text-indigo-700 dark:text-indigo-300 leading-relaxed">
-            Toggle each day on to mark it available, then add specific time slots.
-            Learners see only these slots when booking. You can update your schedule anytime.
-          </p>
-        </div>
-
-        {/* Summary + presets */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              <span className="font-semibold text-[#0F172A] dark:text-slate-100">{enabledDays.size}</span> days enabled
-              {' · '}
-              <span className="font-semibold text-[#0F172A] dark:text-slate-100">{totalSlots}</span> total slots
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">Quick presets:</span>
-            {(
-              [
-                { id: 'weekdays', label: 'Weekdays' },
-                { id: 'weekends', label: 'Weekends' },
-                { id: 'evenings', label: 'Weekday evenings' },
-              ] as const
-            ).map((p) => (
-              <button
-                key={p.id}
-                onClick={() => applyPreset(p.id)}
-                className="px-2.5 py-1 text-xs font-medium rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] text-slate-600 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-700 hover:text-indigo-600 dark:hover:text-indigo-400 bg-white dark:bg-[#111827] transition-colors"
-              >
-                {p.label}
-              </button>
-            ))}
+      <div className="max-w-2xl space-y-5">
+        <div className="card p-4">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Quick Presets</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="xs" variant="secondary" onClick={() => applyPreset('weekdays')}>Weekdays</Button>
+            <Button size="xs" variant="secondary" onClick={() => applyPreset('weekends')}>Weekends</Button>
+            <Button size="xs" variant="secondary" onClick={() => applyPreset('evenings')}>Evenings only</Button>
+            <Button size="xs" variant="danger" leftIcon={<Trash2 className="w-3 h-3" />} onClick={clearAll}>Clear all</Button>
           </div>
         </div>
 
-        {/* Day rows */}
         <div className="space-y-2">
-          {ALL_DAYS.map((day) => (
+          {ALL_DAYS.map(day => (
             <DayRow
               key={day.key}
               day={day}
               slots={schedule[day.key]}
               enabled={enabledDays.has(day.key)}
               onToggle={() => toggleDay(day.key)}
-              onAddSlot={(slot) => addSlot(day.key, slot)}
-              onRemoveSlot={(slot) => removeSlot(day.key, slot)}
+              onAddSlot={slot => addSlot(day.key, slot)}
+              onRemoveSlot={slot => removeSlot(day.key, slot)}
             />
           ))}
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center justify-between pt-2">
-          <button
-            onClick={clearAll}
-            className="text-sm text-red-600 dark:text-red-400 hover:underline flex items-center gap-1"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Clear all
-          </button>
-          <Button
-            variant="primary"
-            leftIcon={<Save className="w-4 h-4" />}
-            onClick={handleSave}
-            loading={saving}
-          >
-            {!saving && 'Save Schedule'}
-          </Button>
-        </div>
-
-        {/* Tip */}
-        <div className="card p-4">
-          <h3 className="text-xs font-semibold text-[#0F172A] dark:text-slate-100 mb-1">
-            Tips for setting availability
-          </h3>
-          <ul className="space-y-1 text-xs text-slate-500 dark:text-slate-400 list-disc pl-4">
-            <li>Add at least 4–6 slots per week to maximise bookings.</li>
-            <li>Weekend slots tend to fill up first — add extra buffer.</li>
-            <li>Evening slots (5–8 PM) are popular with working learners.</li>
-            <li>Keep your schedule updated — outdated availability reduces trust.</li>
-          </ul>
+        <div className="card p-4 flex gap-3">
+          <Info className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+          <div>
+            <h3 className="text-xs font-semibold text-[#0F172A] dark:text-slate-100 mb-2">Tips for setting availability</h3>
+            <ul className="space-y-1 text-xs text-slate-500 dark:text-slate-400 list-disc pl-4">
+              <li>Add at least 4–6 slots per week to maximise bookings.</li>
+              <li>Weekend slots tend to fill up first — add extra buffer.</li>
+              <li>Evening slots (5–8 PM) are popular with working learners.</li>
+              <li>Keep your schedule updated — outdated availability reduces trust.</li>
+            </ul>
+          </div>
         </div>
       </div>
     </DashboardLayout>

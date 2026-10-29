@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Compass, CalendarCheck, MessageSquare, Star, User, Settings,
-  BookOpen, TrendingUp, Briefcase, Users, BarChart3, ShieldCheck, ChevronLeft, ChevronRight, LogOut, X, Clock
+  BookOpen, TrendingUp, Briefcase, Users, BarChart3, ShieldCheck, ChevronLeft, ChevronRight, LogOut, X, Clock, Heart, HelpCircle
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Logo } from './Logo';
@@ -20,9 +20,11 @@ const learnerNav: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
   { label: 'Discover', href: '/explore', icon: <Compass className="w-4 h-4" /> },
   { label: 'My Bookings', href: '/dashboard/bookings', icon: <CalendarCheck className="w-4 h-4" /> },
+  { label: 'Saved', href: '/dashboard/saved', icon: <Heart className="w-4 h-4" /> },
   { label: 'Messages', href: '/dashboard/messages', icon: <MessageSquare className="w-4 h-4" />, badge: 1 },
   { label: 'Reviews', href: '/dashboard/reviews', icon: <Star className="w-4 h-4" /> },
   { label: 'Profile', href: '/dashboard/profile', icon: <User className="w-4 h-4" /> },
+  { label: 'Support', href: '/support', icon: <HelpCircle className="w-4 h-4" /> },
   { label: 'Settings', href: '/settings', icon: <Settings className="w-4 h-4" /> },
 ];
 
@@ -34,7 +36,8 @@ const providerNav: NavItem[] = [
   { label: 'Messages',      href: '/provider/messages',     icon: <MessageSquare className="w-4 h-4" />, badge: 1 },
   { label: 'Reviews',       href: '/provider/reviews',      icon: <Star className="w-4 h-4" /> },
   { label: 'Earnings',      href: '/provider/earnings',     icon: <TrendingUp className="w-4 h-4" /> },
-  { label: 'Profile',       href: '/provider/profile',      icon: <User className="w-4 h-4" /> },
+  { label: 'My Profile',    href: '/provider/questionnaire',icon: <User className="w-4 h-4" /> },
+  { label: 'Support',      href: '/support',               icon: <HelpCircle className="w-4 h-4" /> },
   { label: 'Settings',      href: '/settings',              icon: <Settings className="w-4 h-4" /> },
 ];
 
@@ -67,7 +70,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const sidebarContent = (
     <div className={cn(
       'flex flex-col h-full',
-      'bg-white dark:bg-[#0B1220] border-r border-[#E2E8F0] dark:border-[#1E293B]',
+      'bg-white/95 dark:bg-[#080E1A]/95 backdrop-blur-xl border-r border-slate-200/60 dark:border-white/5',
       'transition-all duration-200',
       collapsed ? 'w-16' : 'w-56'
     )}>
@@ -142,7 +145,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 <p className="text-xs text-slate-500 dark:text-slate-400 capitalize">{user.role}</p>
               </div>
               <button
-                onClick={() => { logout(); navigate('/'); }}
+                onClick={async () => { await logout(); navigate('/'); }}
                 className="btn-ghost p-1.5 text-slate-400 hover:text-red-500"
                 aria-label="Logout"
               >

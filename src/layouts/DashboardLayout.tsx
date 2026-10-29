@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Menu, Bell, Sun, Moon, Search } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { mockNotifications } from '@/data/mockNotifications';
+import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -18,13 +18,14 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children, title, subtitle, actions }: DashboardLayoutProps) {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const unreadCount = mockNotifications.filter((n) => !n.isRead).length;
+  const unreadCount = useUnreadNotifications();
 
   if (!user) return <Navigate to="/login" replace />;
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] dark:bg-[#0B1220] overflow-hidden">
+    <div className="flex h-screen bg-[#F4F6FB] dark:bg-[#080E1A] overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         mobileOpen={mobileSidebarOpen}
@@ -65,7 +66,7 @@ export function DashboardLayout({ children, title, subtitle, actions }: Dashboar
               {theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             </button>
 
-            <button className="btn-ghost p-2 relative" aria-label="Notifications">
+            <button className="btn-ghost p-2 relative" aria-label="Notifications" onClick={() => navigate('/notifications')}>
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-600 rounded-full" />
@@ -83,7 +84,7 @@ export function DashboardLayout({ children, title, subtitle, actions }: Dashboar
               <div className="flex items-start justify-between gap-4">
                 <div>
                   {title && (
-                    <h1 className="text-2xl font-bold text-[#0F172A] dark:text-slate-100 tracking-tight">
+                    <h1 className="text-2xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300">
                       {title}
                     </h1>
                   )}

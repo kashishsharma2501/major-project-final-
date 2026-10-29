@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, NavLink, Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import {
   LayoutDashboard, Users, Briefcase, BookOpen, CalendarCheck,
   Star, BarChart3, ShieldCheck, CheckCircle, XCircle,
   AlertCircle, Menu, X, ExternalLink, ToggleLeft, ToggleRight,
-  TrendingUp, Search, Filter,
+  TrendingUp, Search, Filter, Clock, HelpCircle, FileText,
 } from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 import { Avatar } from '@/components/ui/Avatar';
@@ -14,15 +14,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { Tabs, TabList, Tab, TabPanel } from '@/components/ui/Tabs';
-import { mockProviders } from '@/data/mockProviders';
-import { mockReviews } from '@/data/mockReviews';
-import { mockBookings } from '@/data/mockBookings';
-import {
-  skillCatalogue,
-  catalogueStats,
-  type CatalogueSkill,
-  type EvidenceStatus,
-} from '@/data/skillCatalogue';
+import type { CatalogueSkill, EvidenceStatus } from '@/data/skillCatalogue';
+import type { Booking, Provider, Review, UserRole } from '@/types';
+import { getAllCatalogueSkills } from '@/services/catalogueService';
+import { getAllBookings } from '@/services/bookingService';
+import { getAllReviews } from '@/services/reviewService';
+import { getProviders } from '@/services/providerService';
+import { getAllTickets, updateTicketStatus, type SupportTicket } from '@/services/supportService';
+import { supabase } from '@/lib/supabase';
 import { formatRelativeTime, formatDate } from '@/utils/format';
 import { cn } from '@/utils/cn';
 
@@ -39,18 +38,28 @@ const adminNav = [
   { label: 'Settings',  href: '/admin/settings',  icon: <ShieldCheck className="w-4 h-4" /> },
 ];
 
-// ── Mock users table ──────────────────────────────────────────────────────────
+interface ProviderSkillSubmission {
+  id: string;
+  provider_id: string;
+  skill_name: string;
+  category: string;
+  experience_level: string;
+  years_of_experience: number;
+  price_per_session: number;
+  session_duration_mins: number;
+  learning_mode: string;
+  description: string;
+  is_active: boolean;
+  approval_status: 'pending' | 'approved' | 'rejected';
+  rejection_reason: string | null;
+  submitted_at: string;
+  provider: {
+    city: string;
+    profiles: { name: string; email: string; avatar_url: string | null } | null;
+  } | null;
+}
 
-const mockAdminUsers = [
-  { id: 'u1',  name: 'Aditi Singh',    email: 'aditi.singh@email.com',   role: 'learner',  city: 'Ludhiana',    joinedAt: '2026-04-10', isVerified: true  },
-  { id: 'u9',  name: 'Meera Joshi',    email: 'meera.joshi@email.com',   role: 'learner',  city: 'Ludhiana',    joinedAt: '2026-06-15', isVerified: true  },
-  { id: 'u10', name: 'Naveen Kumar',   email: 'naveen@email.com',        role: 'learner',  city: 'Chandigarh',  joinedAt: '2026-07-20', isVerified: false },
-  { id: 'u11', name: 'Tanveer Singh',  email: 'tanveer@email.com',       role: 'learner',  city: 'Ludhiana',    joinedAt: '2026-05-01', isVerified: true  },
-  { id: 'u12', name: 'Deepa Menon',    email: 'deepa.menon@email.com',   role: 'learner',  city: 'Chandigarh',  joinedAt: '2026-06-03', isVerified: true  },
-  { id: 'u13', name: 'Rajat Khanna',   email: 'rajat.khanna@email.com',  role: 'learner',  city: 'Ludhiana',    joinedAt: '2026-07-14', isVerified: true  },
-  { id: 'u14', name: 'Sakshi Arora',   email: 'sakshi.arora@email.com',  role: 'learner',  city: 'Amritsar',    joinedAt: '2026-05-22', isVerified: true  },
-  { id: 'u15', name: 'Harpreet Kaur',  email: 'harpreet@email.com',      role: 'learner',  city: 'Chandigarh',  joinedAt: '2026-08-01', isVerified: false },
-];
+// ── Mock users table ──────────────────────────────────────────────────────────
 
 // ── Evidence badge ────────────────────────────────────────────────────────────
 
@@ -114,7 +123,7 @@ function AdminSidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose?:
               <p className="text-[10px] text-slate-500">Administrator</p>
             </div>
             <button
-              onClick={() => { logout(); navigate('/'); }}
+              onClick={async () => { await logout(); navigate('/'); }}
               className="text-slate-500 hover:text-red-400 transition-colors"
               aria-label="Logout"
             >
@@ -143,22 +152,20 @@ function AdminSidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose?:
 
 function SkillsTab() {
   const { toast } = useToast();
-  const [skills, setSkills] = useState<CatalogueSkill[]>(skillCatalogue);
+  const [skills, setSkills] = useState<CatalogueSkill[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | EvidenceStatus>('all');
   const [filterCategory, setFilterCategory] = useState('all');
 
-  const categories = ['all', ...Array.from(new Set(skillCatalogue.map((s) => s.category)))];
+  useEffect(() => {
+    getAllCatalogueSkills().then(setSkills).catch(e => {
+      setError(e instanceof Error ? e.message : 'Could not load catalogue.');
+    }).finally(() => setLoading(false));
+  }, []);
 
-  const toggleActive = (id: string) => {
-    setSkills((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, isActive: !s.isActive } : s))
-    );
-    const skill = skills.find((s) => s.id === id);
-    if (skill) {
-      toast('success', skill.isActive ? `"${skill.name}" deactivated` : `"${skill.name}" activated`);
-    }
-  };
+  const categories = ['all', ...Array.from(new Set(skills.map((s) => s.category)))];
 
   const filtered = skills.filter((s) => {
     const matchSearch =
@@ -171,7 +178,7 @@ function SkillsTab() {
     return matchSearch && matchStatus && matchCategory;
   });
 
-  const activeCount  = skills.filter((s) => s.isActive).length;
+  const activeCount = skills.filter((s) => s.isActive).length;
   const verifiedCount = skills.filter((s) => s.evidenceStatus === 'verified').length;
   const needsValCount = skills.filter((s) => s.evidenceStatus === 'needs_validation').length;
 
@@ -244,7 +251,7 @@ function SkillsTab() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Category</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Evidence</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Source</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Active</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B]">
@@ -302,32 +309,20 @@ function SkillsTab() {
                     )}
                   </td>
 
-                  {/* Active toggle */}
+                  {/* Read-only status: catalogue writes are migration-managed. */}
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleActive(skill.id)}
-                      className={cn(
-                        'inline-flex items-center gap-1 text-xs font-medium transition-colors',
-                        skill.isActive
-                          ? 'text-green-600 dark:text-green-400 hover:text-red-600 dark:hover:text-red-400'
-                          : 'text-slate-400 hover:text-green-600 dark:hover:text-green-400'
-                      )}
-                      title={skill.isActive ? 'Deactivate skill' : 'Activate skill'}
-                    >
-                      {skill.isActive ? (
-                        <ToggleRight className="w-5 h-5" />
-                      ) : (
-                        <ToggleLeft className="w-5 h-5" />
-                      )}
-                      <span className="hidden sm:inline">{skill.isActive ? 'Active' : 'Inactive'}</span>
-                    </button>
+                    <span className={cn('text-xs font-medium', skill.isActive ? 'text-green-600 dark:text-green-400' : 'text-slate-400')}>
+                      {skill.isActive ? 'Active' : 'Inactive'}
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {filtered.length === 0 && (
+          {loading && <div className="py-8 text-center text-sm text-slate-400" role="status">Loading catalogue…</div>}
+          {error && <div className="py-8 text-center text-sm text-red-500">{error}</div>}
+          {!loading && !error && filtered.length === 0 && (
             <div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
               No skills match your current filters.
             </div>
@@ -340,24 +335,53 @@ function SkillsTab() {
 
 // ── Reports tab ───────────────────────────────────────────────────────────────
 
-function ReportsTab() {
-  const topSkills = [
-    { name: 'Photography',    bookings: 24, providers: 8,  avgRating: 4.9 },
-    { name: 'Web Development',bookings: 18, providers: 5,  avgRating: 4.7 },
-    { name: 'Graphic Design', bookings: 15, providers: 6,  avgRating: 4.8 },
-    { name: 'Guitar',         bookings: 14, providers: 4,  avgRating: 4.9 },
-    { name: 'Digital Marketing', bookings: 9, providers: 3, avgRating: 4.5 },
-    { name: 'Cooking',        bookings: 8,  providers: 4,  avgRating: 4.8 },
-  ];
+function ReportsTab({
+  bookings,
+  providers,
+  reviews,
+  users,
+}: {
+  bookings: Booking[];
+  providers: Provider[];
+  reviews: Review[];
+  users: { city: string }[];
+}) {
+  const skillRows = new Map<string, { bookings: number; providers: Set<string>; ratings: number[] }>();
+  for (const booking of bookings) {
+    const row = skillRows.get(booking.skill) ?? { bookings: 0, providers: new Set<string>(), ratings: [] };
+    row.bookings += 1;
+    row.providers.add(booking.providerId);
+    row.ratings.push(...reviews.filter(review => review.skillTaught === booking.skill).map(review => review.rating));
+    skillRows.set(booking.skill, row);
+  }
+  const topSkills = Array.from(skillRows, ([name, row]) => ({
+    name,
+    bookings: row.bookings,
+    providers: row.providers.size,
+    avgRating: row.ratings.length ? row.ratings.reduce((sum, rating) => sum + rating, 0) / row.ratings.length : null,
+  })).sort((a, b) => b.bookings - a.bookings).slice(0, 6);
   const maxBookings = Math.max(...topSkills.map((s) => s.bookings));
 
-  const cityStats = [
-    { city: 'Ludhiana',    users: 1240, providers: 312, bookings: 1100 },
-    { city: 'Chandigarh',  users: 890,  providers: 198, bookings: 820  },
-    { city: 'Amritsar',    users: 420,  providers: 87,  bookings: 310  },
-    { city: 'Jalandhar',   users: 310,  providers: 73,  bookings: 188  },
-    { city: 'Delhi',       users: 280,  providers: 68,  bookings: 165  },
-  ];
+  const cities = new Map<string, { users: number; providers: number; bookings: number }>();
+  for (const user of users) {
+    const row = cities.get(user.city) ?? { users: 0, providers: 0, bookings: 0 };
+    row.users += 1;
+    cities.set(user.city, row);
+  }
+  for (const provider of providers) {
+    const row = cities.get(provider.city) ?? { users: 0, providers: 0, bookings: 0 };
+    row.providers += 1;
+    cities.set(provider.city, row);
+  }
+  for (const booking of bookings) {
+    const city = providers.find(provider => provider.id === booking.providerId)?.city;
+    if (!city) continue;
+    const row = cities.get(city) ?? { users: 0, providers: 0, bookings: 0 };
+    row.bookings += 1;
+    cities.set(city, row);
+  }
+  const cityStats = Array.from(cities, ([city, values]) => ({ city, ...values }))
+    .sort((a, b) => b.bookings - a.bookings).slice(0, 8);
 
   return (
     <div className="space-y-6">
@@ -382,7 +406,7 @@ function ReportsTab() {
                 {skill.bookings}
               </span>
               <span className="text-xs text-amber-500 flex items-center gap-0.5 w-10 shrink-0">
-                <Star className="w-3 h-3 fill-current" />{skill.avgRating}
+                <Star className="w-3 h-3 fill-current" />{skill.avgRating?.toFixed(1) ?? '—'}
               </span>
               <span className="text-xs text-slate-400 w-20 shrink-0 hidden sm:block">
                 {skill.providers} providers
@@ -390,9 +414,7 @@ function ReportsTab() {
             </div>
           ))}
         </div>
-        <p className="text-xs text-slate-400 mt-4">
-          * Demonstration data for academic project. Not derived from live transactions.
-        </p>
+        {topSkills.length === 0 && <p className="text-sm text-slate-500">No booking data available yet.</p>}
       </div>
 
       {/* City breakdown */}
@@ -433,12 +455,90 @@ export function AdminDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [mobileSidebar, setMobileSidebar] = useState(false);
-  const [providers, setProviders] = useState(mockProviders);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [skillSubmissions, setSkillSubmissions] = useState<ProviderSkillSubmission[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string; email: string; role: UserRole; city: string; created_at: string; is_verified: boolean }[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [auditLog, setAuditLog] = useState<{ id: string; action: string; target_type: string; target_id: string; created_at: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [providerData, bookingData, reviewData, profileResult, ticketData, auditData, submissionsResult] = await Promise.all([
+        getProviders(),
+        getAllBookings(),
+        getAllReviews(),
+        supabase.from('profiles').select('id,name,email,role,city,created_at,is_verified').order('created_at', { ascending: false }),
+        getAllTickets().catch(() => [] as SupportTicket[]),
+        supabase.from('admin_audit_log').select('id,action,target_type,target_id,created_at').order('created_at', { ascending: false }).limit(50),
+        supabase.from('provider_skills')
+          .select('id,provider_id,skill_name,category,experience_level,years_of_experience,price_per_session,session_duration_mins,learning_mode,description,is_active,approval_status,rejection_reason,submitted_at,provider:provider_profiles!provider_skills_provider_id_fkey(city,profiles!provider_profiles_user_id_fkey(name,email,avatar_url))')
+          .order('submitted_at', { ascending: false }),
+      ]);
+      if (profileResult.error) throw new Error(profileResult.error.message);
+      if (submissionsResult.error) throw new Error(submissionsResult.error.message);
+      setProviders(providerData);
+      setBookings(bookingData);
+      setReviews(reviewData);
+      setUsers((profileResult.data ?? []) as typeof users);
+      setTickets(ticketData);
+      setAuditLog((auditData.data ?? []) as typeof auditLog);
+      setSkillSubmissions((submissionsResult.data ?? []) as unknown as ProviderSkillSubmission[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load admin data.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   if (!user || user.role !== 'admin') return <Navigate to="/login" replace />;
 
-  const verifyProvider = (id: string) => {
-    setProviders((prev) => prev.map((p) => (p.id === id ? { ...p, isVerified: true } : p)));
+  const setSkillApproval = async (skill: ProviderSkillSubmission, status: 'approved' | 'rejected') => {
+    let reason: string | undefined;
+    if (status === 'rejected') {
+      const enteredReason = prompt('Reason for rejection (shown to provider):');
+      if (enteredReason === null) return;
+      reason = enteredReason.trim();
+      if (!reason) {
+        toast('warning', 'A rejection reason is required');
+        return;
+      }
+    }
+
+    const { error: rpcError } = await supabase.rpc('set_provider_skill_approval', {
+      p_skill_id: skill.id,
+      p_status: status,
+      ...(reason ? { p_rejection_note: reason } : {}),
+    });
+    if (rpcError) { toast('error', `Could not ${status} skill`, rpcError.message); return; }
+    setSkillSubmissions(prev => prev.map(item => item.id === skill.id
+      ? { ...item, approval_status: status, rejection_reason: reason ?? null }
+      : item));
+    toast('success', status === 'approved' ? 'Skill approved' : 'Skill rejected');
+  };
+
+  const handleTicketStatus = async (ticketId: string, status: 'in_progress' | 'resolved' | 'closed', note?: string) => {
+    try {
+      await updateTicketStatus(ticketId, status, note);
+      setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status, admin_note: note ?? t.admin_note } : t));
+      toast('success', `Ticket marked ${status}`);
+    } catch (e: any) { toast('error', 'Could not update ticket', e.message); }
+  };
+
+  const verifyProvider = async (id: string) => {
+    const { error: updateError } = await supabase.from('provider_profiles').update({ is_verified: true }).eq('id', id);
+    if (updateError) {
+      toast('error', 'Could not verify provider', updateError.message);
+      return;
+    }
+    setProviders(previous => previous.map(provider => provider.id === id ? { ...provider, isVerified: true } : provider));
     toast('success', 'Provider verified');
   };
 
@@ -466,41 +566,103 @@ export function AdminDashboard() {
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
+          {error && (
+            <div className="mb-5 flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              <span>{error}</span>
+              <Button size="xs" variant="secondary" onClick={load}>Retry</Button>
+            </div>
+          )}
           {/* Platform stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <StatCard
-              title="Total Users" value="2,847"
+              title="Total Users" value={loading ? '…' : users.length}
               icon={<Users className="w-4 h-4" />} accent="indigo"
-              trend={{ value: 1, label: '+124 this week' }}
+              trend={{ value: 0, label: 'Live database count' }}
             />
             <StatCard
-              title="Active Providers" value={providers.length.toString()}
+              title="Active Providers" value={loading ? '…' : providers.length.toString()}
               icon={<Briefcase className="w-4 h-4" />} accent="teal"
-              trend={{ value: 1, label: `${providers.filter(p => p.isVerified).length} verified` }}
+              trend={{ value: 0, label: `${providers.filter(p => p.isVerified).length} verified` }}
             />
             <StatCard
-              title="Total Bookings" value="2,418"
+              title="Total Bookings" value={loading ? '…' : bookings.length}
               icon={<CalendarCheck className="w-4 h-4" />} accent="green"
-              trend={{ value: 1, label: '+89 this week' }}
+              trend={{ value: 0, label: 'Live database count' }}
             />
             <StatCard
-              title="Skills Catalogued" value={catalogueStats.total.toString()}
+              title="Skills Catalogued" value="42"
               icon={<BookOpen className="w-4 h-4" />} accent="amber"
-              trend={{ value: 1, label: `${catalogueStats.verified} verified` }}
+              trend={{ value: 0, label: 'Research catalogue' }}
             />
           </div>
 
-          <Tabs defaultTab="providers">
+          <Tabs defaultTab="approvals">
             <TabList>
-              <Tab value="providers">Provider Verification</Tab>
+              <Tab value="approvals">
+                Session approvals
+                {skillSubmissions.filter(skill => skill.approval_status === 'pending').length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">{skillSubmissions.filter(skill => skill.approval_status === 'pending').length}</span>
+                )}
+              </Tab>
+              <Tab value="providers">Providers</Tab>
               <Tab value="users">Users</Tab>
-              <Tab value="skills">Skills Catalogue</Tab>
+              <Tab value="skills">Skills</Tab>
               <Tab value="bookings">Bookings</Tab>
               <Tab value="reviews">Reviews</Tab>
-              <Tab value="reports">Reports</Tab>
+              <Tab value="tickets">
+                Support
+                {tickets.filter(t => t.status === 'open').length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">{tickets.filter(t => t.status === 'open').length}</span>
+                )}
+              </Tab>
+              <Tab value="audit">Audit</Tab>
             </TabList>
 
             <div className="mt-5">
+              {/* ── Skill session approvals ── */}
+              <TabPanel value="approvals">
+                <div className="space-y-3">
+                  {skillSubmissions.length === 0 && <div className="card p-8 text-center text-sm text-slate-500">No skill sessions have been submitted.</div>}
+                  {skillSubmissions.map(skill => {
+                    const provider = skill.provider;
+                    const profile = provider?.profiles;
+                    const statusVariant = skill.approval_status === 'approved'
+                      ? 'success'
+                      : skill.approval_status === 'rejected' ? 'danger' : 'warning';
+                    return (
+                      <div key={skill.id} className="card p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3">
+                            <Avatar name={profile?.name ?? 'Provider'} src={profile?.avatar_url ?? undefined} size="md" />
+                            <div>
+                              <p className="font-semibold text-sm text-[#0F172A] dark:text-slate-100">{profile?.name ?? 'Unknown'}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">{profile?.email} · {provider?.city}</p>
+                              <p className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 mt-2">{skill.skill_name} · {skill.category}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                {skill.experience_level} · {skill.years_of_experience} years · ₹{skill.price_per_session} · {skill.session_duration_mins} min · {skill.learning_mode}
+                              </p>
+                              {skill.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl">{skill.description}</p>}
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Submitted {formatDate(skill.submitted_at)}</p>
+                              {skill.rejection_reason && <p className="text-xs text-red-600 dark:text-red-400 mt-1">Rejection reason: {skill.rejection_reason}</p>}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            <Badge variant={statusVariant}>{skill.approval_status}</Badge>
+                            {!skill.is_active && <Badge variant="slate">Inactive</Badge>}
+                            {skill.approval_status === 'pending' && (
+                              <div className="flex gap-2 mt-1">
+                                <Button size="xs" variant="primary" leftIcon={<CheckCircle className="w-3 h-3" />} onClick={() => setSkillApproval(skill, 'approved')}>Approve</Button>
+                                <Button size="xs" variant="danger" leftIcon={<XCircle className="w-3 h-3" />} onClick={() => setSkillApproval(skill, 'rejected')}>Reject</Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </TabPanel>
+
               {/* ── Provider verification ── */}
               <TabPanel value="providers">
                 <div className="card overflow-hidden">
@@ -570,7 +732,7 @@ export function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B]">
-                        {mockAdminUsers.map((u) => (
+                        {users.map((u) => (
                           <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
@@ -585,9 +747,9 @@ export function AdminDashboard() {
                               <Badge variant="indigo">{u.role}</Badge>
                             </td>
                             <td className="px-4 py-3 text-slate-600 dark:text-slate-400 hidden md:table-cell">{u.city}</td>
-                            <td className="px-4 py-3 text-xs text-slate-500">{formatDate(u.joinedAt)}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500">{formatDate(u.created_at)}</td>
                             <td className="px-4 py-3">
-                              {u.isVerified ? (
+                              {u.is_verified ? (
                                 <CheckCircle className="w-4 h-4 text-green-500" />
                               ) : (
                                 <XCircle className="w-4 h-4 text-slate-300 dark:text-slate-600" />
@@ -621,7 +783,7 @@ export function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B]">
-                        {mockBookings.map((b) => (
+                        {bookings.map((b) => (
                           <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                             <td className="px-4 py-3">
                               <p className="font-medium text-[#0F172A] dark:text-slate-100">{b.learnerName}</p>
@@ -652,7 +814,7 @@ export function AdminDashboard() {
               {/* ── Reviews ── */}
               <TabPanel value="reviews">
                 <div className="space-y-3">
-                  {mockReviews.map((r) => (
+                  {reviews.map((r) => (
                     <div key={r.id} className="card p-4 flex items-start gap-4 flex-wrap">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -669,14 +831,6 @@ export function AdminDashboard() {
                         <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">"{r.comment}"</p>
                         <p className="text-xs text-slate-400 mt-1">{formatRelativeTime(r.createdAt)}</p>
                       </div>
-                      <div className="flex gap-2 shrink-0">
-                        <Button size="xs" variant="secondary" onClick={() => toast('success', 'Review approved')}>
-                          Approve
-                        </Button>
-                        <Button size="xs" variant="danger" onClick={() => toast('info', 'Review removed')}>
-                          Remove
-                        </Button>
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -684,7 +838,82 @@ export function AdminDashboard() {
 
               {/* ── Reports ── */}
               <TabPanel value="reports">
-                <ReportsTab />
+                <ReportsTab bookings={bookings} providers={providers} reviews={reviews} users={users} />
+              </TabPanel>
+
+              {/* ── Support Tickets ── */}
+              <TabPanel value="tickets">
+                <div className="space-y-3">
+                  {tickets.length === 0 && (
+                    <div className="card p-8 text-center text-sm text-slate-500">No support tickets yet.</div>
+                  )}
+                  {tickets.map(t => (
+                    <div key={t.id} className="card p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-sm text-[#0F172A] dark:text-slate-100">{t.subject}</p>
+                            <span className={cn('badge text-xs',
+                              t.status === 'open' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30' :
+                              t.status === 'in_progress' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/30' :
+                              t.status === 'resolved' ? 'bg-green-100 text-green-700 dark:bg-green-950/30' :
+                              'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                            )}>{t.status}</span>
+                            <span className="badge text-xs bg-slate-100 text-slate-500 dark:bg-slate-800 capitalize">{t.category.replace('_', ' ')}</span>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{t.description}</p>
+                          {t.admin_note && (
+                            <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1.5 italic">Admin: {t.admin_note}</p>
+                          )}
+                          <p className="text-xs text-slate-400 mt-1">{formatRelativeTime(t.created_at)}</p>
+                        </div>
+                        <div className="flex flex-col gap-1.5 shrink-0">
+                          {t.status === 'open' && (
+                            <Button size="xs" variant="secondary" onClick={() => handleTicketStatus(t.id, 'in_progress')}>
+                              <Clock className="w-3 h-3 mr-1" />In progress
+                            </Button>
+                          )}
+                          {(t.status === 'open' || t.status === 'in_progress') && (
+                            <Button size="xs" variant="primary" onClick={() => {
+                              const note = prompt('Resolution note (optional):') ?? undefined;
+                              handleTicketStatus(t.id, 'resolved', note);
+                            }}>
+                              <CheckCircle className="w-3 h-3 mr-1" />Resolve
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </TabPanel>
+
+              {/* ── Audit Log ── */}
+              <TabPanel value="audit">
+                <div className="card overflow-hidden">
+                  {auditLog.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-slate-500">No audit entries yet.</div>
+                  ) : (
+                    <div className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B]">
+                      {auditLog.map(entry => (
+                        <div key={entry.id} className="px-4 py-3 flex items-center gap-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/30 flex items-center justify-center shrink-0">
+                            <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-[#0F172A] dark:text-slate-100">{entry.action.replace(/_/g, ' ')}</p>
+                            {entry.target_type && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                                {entry.target_type} · {entry.target_id?.slice(0, 8)}…
+                              </p>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 shrink-0">{formatRelativeTime(entry.created_at)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </TabPanel>
             </div>
           </Tabs>

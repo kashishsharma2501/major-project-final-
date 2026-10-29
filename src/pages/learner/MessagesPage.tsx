@@ -1,45 +1,103 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Send, MessageSquare, Phone, MoreVertical, Calendar } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Avatar } from '@/components/ui/Avatar';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { mockConversations } from '@/data/mockMessages';
 import { formatRelativeTime, formatTime } from '@/utils/format';
 import { cn } from '@/utils/cn';
+import { useAuth } from '@/context/AuthContext';
 import type { Conversation, Message } from '@/types';
+import { getConversations, getOrCreateConversation, markConversationRead, sendMessage as persistMessage } from '@/services/messageService';
+import { getProviderById } from '@/services/providerService';
+import { getOrCreateProviderProfile } from '@/services/providerSkillsService';
 
 export function MessagesPage() {
-  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
-  const [active, setActive] = useState<Conversation | null>(mockConversations[0]);
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [active, setActive] = useState<Conversation | null>(null);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getConversations(user.id);
+      setConversations(data);
+      setActive(current => data.find(item => item.id === current?.id) ?? data[0] ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load messages.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const providerUserId = searchParams.get('providerId');
+    const skillName = searchParams.get('skill');
+    if (!user?.id || !providerUserId || !skillName) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const provider = await getProviderById(providerUserId);
+        if (!provider) throw new Error('Provider profile was not found.');
+        const providerId = await getOrCreateProviderProfile(provider.userId, provider.city);
+        if (!providerId) throw new Error('Provider profile is not available.');
+        const conversationId = await getOrCreateConversation(user.id, providerId, skillName);
+        await load();
+        if (!cancelled) {
+          const refreshed = await getConversations(user.id);
+          setConversations(refreshed);
+          setActive(refreshed.find(item => item.id === conversationId) ?? null);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Could not open conversation.');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [load, searchParams, user?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [active?.messages]);
 
-  const sendMessage = () => {
-    if (!input.trim() || !active) return;
-    const newMsg: Message = {
-      id: `msg-${Date.now()}`,
-      conversationId: active.id,
-      senderId: 'u1',
-      senderName: 'Aditi Singh',
-      content: input.trim(),
-      timestamp: new Date().toISOString(),
-      isRead: true,
-      type: 'text',
-    };
-    const updated: Conversation = {
-      ...active,
-      messages: [...active.messages, newMsg],
-      lastMessage: input.trim(),
-      lastMessageTime: new Date().toISOString(),
-      unreadCount: 0,
-    };
-    setActive(updated);
-    setConversations((prev) => prev.map((c) => (c.id === active.id ? updated : c)));
-    setInput('');
+  useEffect(() => {
+    if (!active || !user?.id || active.unreadCount === 0) return;
+    markConversationRead(active.id, user.id).then(() => {
+      setConversations(previous => previous.map(conversation => conversation.id === active.id
+        ? { ...conversation, unreadCount: 0, messages: conversation.messages.map(message => message.senderId !== user.id ? { ...message, isRead: true } : message) }
+        : conversation));
+    }).catch(() => undefined);
+  }, [active?.id, active?.unreadCount, user?.id]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || !active || !user?.id || sending) return;
+    setSending(true);
+    try {
+      const newMsg: Message = await persistMessage(active.id, user.id, input.trim());
+      const updated: Conversation = {
+        ...active,
+        messages: [...active.messages, newMsg],
+        lastMessage: newMsg.content,
+        lastMessageTime: newMsg.timestamp,
+        unreadCount: 0,
+      };
+      setActive(updated);
+      setConversations(previous => previous.map(conversation => conversation.id === active.id ? updated : conversation));
+      setInput('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send message.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -47,12 +105,23 @@ export function MessagesPage() {
   };
 
   const selectConv = (conv: Conversation) => {
-    setActive({ ...conv, unreadCount: 0 });
-    setConversations((prev) => prev.map((c) => (c.id === conv.id ? { ...c, unreadCount: 0 } : c)));
+    setActive(conv);
   };
 
   return (
     <DashboardLayout title="Messages">
+      {loading ? (
+        <div className="flex items-center justify-center py-16" role="status">Loading messages…</div>
+      ) : error ? (
+        <EmptyState icon={<MessageSquare className="w-6 h-6" />} title="Could not load messages" description={error}
+          action={{ label: 'Try Again', onClick: load }} />
+      ) : conversations.length === 0 ? (
+        <EmptyState
+          icon={<MessageSquare className="w-6 h-6" />}
+          title="No messages yet"
+          description="Your conversations with providers or learners will appear here."
+        />
+      ) : (
       <div className="card overflow-hidden" style={{ height: 'calc(100vh - 200px)', minHeight: '500px' }}>
         <div className="flex h-full">
           {/* Conversation list */}
@@ -118,7 +187,7 @@ export function MessagesPage() {
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {active.messages.map((msg) => {
-                  const isOwn = msg.senderId === 'u1';
+                  const isOwn = msg.senderId === (user?.id ?? 'u1');
                   return (
                     <div key={msg.id} className={cn('flex items-end gap-2', isOwn && 'flex-row-reverse')}>
                       {!isOwn && (
@@ -156,7 +225,7 @@ export function MessagesPage() {
                   />
                   <button
                     onClick={sendMessage}
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || sending}
                     className="btn-primary p-2.5 rounded-xl disabled:opacity-40"
                     aria-label="Send message"
                   >
@@ -176,6 +245,7 @@ export function MessagesPage() {
           )}
         </div>
       </div>
+      )}
     </DashboardLayout>
   );
 }

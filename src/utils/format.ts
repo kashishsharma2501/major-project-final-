@@ -42,7 +42,8 @@ export function formatRelativeTime(timestamp: string): string {
   }
 }
 
-export function formatDistance(km: number): string {
+export function formatDistance(km: number | null): string {
+  if (km === null) return 'Distance unavailable';
   if (km < 1) return `${Math.round(km * 1000)}m away`;
   return `${km.toFixed(1)} km away`;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight, MapPin, Star, Users, BookOpen, Award,
@@ -9,17 +9,11 @@ import { PublicLayout } from '@/layouts/PublicLayout';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { RatingDisplay } from '@/components/ui/Rating';
-import { MatchScore } from '@/components/ui/MatchScore';
-import { popularSkills, skillCategories } from '@/data/mockSkills';
-import { mockProviders } from '@/data/mockProviders';
+import { getFeaturedSkills, getCatalogueCategories, getCatalogueLoadStatus } from '@/services/catalogueService';
+import { getProviders } from '@/services/providerService';
+import { skillCatalogue, type CatalogueSkill } from '@/data/skillCatalogue';
+import type { Provider } from '@/types';
 import { cn } from '@/utils/cn';
-
-const stats = [
-  { value: '1,250+', label: 'Skills Shared', icon: <BookOpen className="w-5 h-5" /> },
-  { value: '680+', label: 'Providers', icon: <Users className="w-5 h-5" /> },
-  { value: '2,400+', label: 'Sessions', icon: <CalendarCheck className="w-5 h-5" /> },
-  { value: '4.8/5', label: 'Avg Rating', icon: <Star className="w-5 h-5" /> },
-];
 
 const howItWorks = [
   {
@@ -74,36 +68,82 @@ const whyFeatures = [
 export function LandingPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [featuredSkills, setFeaturedSkills] = useState<CatalogueSkill[]>(skillCatalogue.filter(skill => skill.isActive && skill.isFeatured));
+  const [catalogueCategories, setCatalogueCategories] = useState<{ name: string; icon: string; count: number }[]>([]);
+  const [catalogueFallback, setCatalogueFallback] = useState(false);
+  const [featuredProviders, setFeaturedProviders] = useState<Provider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [providerLoadError, setProviderLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getFeaturedSkills(), getCatalogueCategories()]).then(([skills, cats]) => {
+      if (cancelled) return;
+      setFeaturedSkills(skills);
+      setCatalogueCategories(cats);
+      setCatalogueFallback(getCatalogueLoadStatus().source === 'fallback');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProviders().then(providers => {
+      if (!cancelled) setFeaturedProviders(providers.slice(0, 3));
+    }).catch(error => {
+      if (!cancelled) {
+        setFeaturedProviders([]);
+        setProviderLoadError(error instanceof Error ? error.message : 'Provider directory is unavailable.');
+      }
+    }).finally(() => {
+      if (!cancelled) setProvidersLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     navigate(`/explore${searchQuery ? `?q=${encodeURIComponent(searchQuery)}` : ''}`);
   };
 
-  const featuredProviders = mockProviders.slice(0, 3);
-
   return (
     <PublicLayout>
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden bg-white dark:bg-[#0B1220]">
-        {/* Background decoration */}
+      <section className="relative overflow-hidden bg-white dark:bg-[#080E1A]">
+        {/* Background decoration — layered gradients */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-          <div className="absolute -top-40 -right-40 w-[600px] h-[600px] rounded-full bg-indigo-50 dark:bg-indigo-950/20 blur-3xl opacity-60" />
-          <div className="absolute -bottom-20 -left-20 w-[400px] h-[400px] rounded-full bg-teal-50 dark:bg-teal-950/20 blur-3xl opacity-40" />
+          <div className="absolute -top-40 -right-40 w-[700px] h-[700px] rounded-full bg-gradient-to-br from-indigo-100 to-violet-100 dark:from-indigo-950/40 dark:to-violet-950/30 blur-3xl opacity-70" />
+          <div className="absolute -bottom-20 -left-20 w-[500px] h-[500px] rounded-full bg-gradient-to-tr from-teal-100 to-emerald-100 dark:from-teal-950/30 dark:to-emerald-950/20 blur-3xl opacity-50" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full bg-violet-100 dark:bg-violet-950/20 blur-3xl opacity-30" />
+          {/* Dot grid pattern */}
+          <svg className="absolute inset-0 w-full h-full opacity-[0.03] dark:opacity-[0.05]" aria-hidden="true">
+            <defs>
+              <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                <circle cx="2" cy="2" r="1.5" fill="currentColor" className="text-indigo-900 dark:text-indigo-100" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#dots)" />
+          </svg>
         </div>
 
-        <div className="page-container relative py-20 lg:py-28">
+        <div className="page-container relative py-24 lg:py-32">
           <div className="max-w-3xl">
-            {/* Label */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 mb-6">
-              <span className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
-              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">Now live in Ludhiana, Chandigarh &amp; more</span>
+            {/* Label pill */}
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-8
+                            bg-gradient-to-r from-indigo-50 to-violet-50
+                            dark:from-indigo-950/60 dark:to-violet-950/40
+                            border border-indigo-200/50 dark:border-indigo-800/50
+                            shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 animate-pulse" />
+              <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-widest">
+                Now live in Ludhiana, Chandigarh &amp; more
+              </span>
             </div>
 
             {/* Heading */}
-            <h1 className="text-hero text-[#0B1220] dark:text-white mb-5 text-balance">
+            <h1 className="text-hero text-[#0B1220] dark:text-white mb-5 text-balance leading-[1.08]">
               Learn skills from{' '}
-              <span className="text-indigo-600 dark:text-indigo-400">people around you.</span>
+              <span className="gradient-text">people around you.</span>
             </h1>
 
             <p className="text-lg text-slate-500 dark:text-slate-400 leading-relaxed mb-8 max-w-2xl">
@@ -119,7 +159,7 @@ export function LandingPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="What do you want to learn?"
-                  className="input-base pl-10 h-12 text-base"
+                  className="input-base pl-10 h-12 text-base shadow-sm"
                   aria-label="Search for a skill"
                 />
               </div>
@@ -139,11 +179,13 @@ export function LandingPage() {
               <span className="text-slate-300 dark:text-slate-700">·</span>
               <div className="flex items-center gap-2">
                 <div className="flex -space-x-2">
-                  {mockProviders.slice(0, 4).map((p) => (
+                  {featuredProviders.slice(0, 4).map((p) => (
                     <Avatar key={p.id} src={p.avatar} name={p.name} size="xs" className="ring-2 ring-white dark:ring-[#0B1220]" />
                   ))}
                 </div>
-                <span className="text-sm text-slate-500 dark:text-slate-400">680+ providers near you</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  {providerLoadError ? 'Provider directory unavailable' : `${featuredProviders.length} providers listed`}
+                </span>
               </div>
             </div>
           </div>
@@ -151,22 +193,24 @@ export function LandingPage() {
       </section>
 
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <section className="border-y border-[#E2E8F0] dark:border-[#1E293B] bg-slate-50/50 dark:bg-[#111827]/50">
-        <div className="page-container py-10">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {stats.map((stat) => (
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-violet-600 to-teal-600" />
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg width=\'30\' height=\'30\' viewBox=\'0 0 30 30\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Ccircle cx=\'2\' cy=\'2\' r=\'1.5\' fill=\'white\' fill-opacity=\'0.1\'/%3E%3C/svg%3E')]" />
+        <div className="page-container py-12 relative">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-3xl mx-auto">
+            {[
+              { value: String(featuredSkills.length ? catalogueCategories.reduce((sum, c) => sum + c.count, 0) : '—'), label: 'Verified skills', icon: '📚' },
+              { value: providersLoading ? '…' : providerLoadError ? '—' : String(featuredProviders.length), label: 'Active providers', icon: '🎓' },
+              { value: String(catalogueCategories.length || '—'), label: 'Skill categories', icon: '🗂️' },
+              { value: 'Live', label: 'Platform status', icon: '✅' },
+            ].map((stat) => (
               <div key={stat.label} className="text-center">
-                <div className="flex justify-center mb-2 text-indigo-600 dark:text-indigo-400">
-                  {stat.icon}
-                </div>
-                <div className="text-2xl font-bold text-[#0B1220] dark:text-white tracking-tight">{stat.value}</div>
-                <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{stat.label}</div>
+                <div className="text-2xl mb-1">{stat.icon}</div>
+                <div className="text-2xl font-bold text-white tracking-tight">{stat.value}</div>
+                <div className="text-sm text-white/70 mt-0.5">{stat.label}</div>
               </div>
             ))}
           </div>
-          <p className="text-center text-xs text-slate-400 mt-4">
-            * Demonstration data for academic project presentation
-          </p>
         </div>
       </section>
 
@@ -184,7 +228,7 @@ export function LandingPage() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {popularSkills.slice(0, 8).map((skill) => (
+            {featuredSkills.slice(0, 8).map((skill) => (
               <button
                 key={skill.id}
                 onClick={() => navigate(`/explore?q=${encodeURIComponent(skill.name)}`)}
@@ -200,6 +244,11 @@ export function LandingPage() {
               </button>
             ))}
           </div>
+          {catalogueFallback && (
+            <p className="text-xs text-amber-700 dark:text-amber-300 mt-3 text-center" role="status">
+              Showing the bundled skill catalogue while the database is unavailable.
+            </p>
+          )}
 
           <div className="text-center mt-8">
             <Button variant="secondary" onClick={() => navigate('/explore')}>
@@ -260,6 +309,11 @@ export function LandingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {!providersLoading && featuredProviders.length === 0 && (
+              <p className="col-span-full text-sm text-slate-500 dark:text-slate-400" role={providerLoadError ? 'alert' : 'status'}>
+                {providerLoadError ? `Provider profiles could not be loaded: ${providerLoadError}` : 'No provider profiles are available yet.'}
+              </p>
+            )}
             {featuredProviders.map((provider) => {
               const skill = provider.skills[0];
               return (
@@ -287,9 +341,6 @@ export function LandingPage() {
                         <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">{provider.primarySkill}</p>
                       </div>
                     </div>
-                    {provider.matchScore && (
-                      <MatchScore score={provider.matchScore} />
-                    )}
                   </div>
 
                   <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mb-4">{provider.bio}</p>
@@ -298,7 +349,7 @@ export function LandingPage() {
                     <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                       <RatingDisplay rating={provider.rating} reviewCount={provider.reviewCount} />
                       <span className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> {provider.distanceKm} km
+                        <MapPin className="w-3 h-3" /> {provider.city}
                       </span>
                     </div>
                     <span className="text-sm font-bold text-[#0F172A] dark:text-slate-100">
@@ -347,15 +398,15 @@ export function LandingPage() {
 
             {/* Visual side — skill categories grid */}
             <div className="grid grid-cols-2 gap-3">
-              {skillCategories.map((cat) => (
+              {catalogueCategories.slice(0, 8).map((cat) => (
                 <button
-                  key={cat.id}
+                  key={cat.name}
                   onClick={() => navigate(`/explore?category=${cat.name}`)}
                   className="card p-4 hover:shadow-card hover:border-indigo-200 dark:hover:border-indigo-800 transition-all duration-200 text-left group"
                 >
                   <span className="text-2xl mb-2 block" role="img" aria-label={cat.name}>{cat.icon}</span>
                   <p className="text-sm font-semibold text-[#0F172A] dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{cat.name}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{cat.count} providers</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{cat.count} skill{cat.count !== 1 ? 's' : ''}</p>
                 </button>
               ))}
             </div>
@@ -404,7 +455,7 @@ export function LandingPage() {
 
               <div className="bg-indigo-950/50 p-10 flex flex-col justify-center">
                 <div className="space-y-3">
-                  {mockProviders.slice(0, 3).map((p) => (
+                  {featuredProviders.slice(0, 3).map((p) => (
                     <div key={p.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10">
                       <Avatar src={p.avatar} name={p.name} size="sm" />
                       <div className="flex-1 min-w-0">
@@ -421,7 +472,7 @@ export function LandingPage() {
                     </div>
                   ))}
                   <div className="text-center pt-2">
-                    <span className="text-xs text-slate-500">+677 more providers</span>
+                    <span className="text-xs text-slate-500">{featuredProviders.length} profiles listed</span>
                   </div>
                 </div>
               </div>

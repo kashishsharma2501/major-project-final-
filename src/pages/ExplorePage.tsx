@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Search, SlidersHorizontal, X, MapPin, Sparkles, ChevronDown,
@@ -10,9 +10,10 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState, SkeletonList } from '@/components/ui/EmptyState';
 import { cn } from '@/utils/cn';
-import { mockProviders } from '@/data/mockProviders';
-import { skillCategories } from '@/data/mockSkills';
-import { activeSkills } from '@/data/skillCatalogue';
+import { getCatalogueSkills, getCatalogueCategories, getCatalogueLoadStatus } from '@/services/catalogueService';
+import { getProviders } from '@/services/providerService';
+import { useSavedItems } from '@/hooks/useSavedItems';
+import type { CatalogueSkill } from '@/data/skillCatalogue';
 import type { Provider } from '@/types';
 
 const distanceOptions = [2, 5, 10, 25];
@@ -23,28 +24,8 @@ const priceOptions = [
   { label: '₹800+', min: 800 },
 ];
 const modeOptions = ['Offline', 'Online', 'Either'];
-const ratingOptions = ['4.5+', '4.0+', 'Any'];
+const ratingOptions = ['4.5+', '4.0+', '3.5+', 'Any'];
 const experienceOptions = ['Beginner', 'Intermediate', 'Advanced'];
-
-// Simple AI chatbot responses
-const aiResponses: Record<string, string> = {
-  default: "Based on your preferences, here are some nearby providers that match well.",
-  photography: "I found 2 photography providers near Ludhiana. Simran Sharma (4.9★, 3.2 km) is highly recommended for beginners, and Riya Kapoor (4.8★, 4.1 km) is great for graphic design too.",
-  design: "Riya Kapoor specialises in Graphic Design and has excellent reviews. She's 4.1 km from you and teaches both online and offline.",
-  coding: "Arjun Mehta is your best match for web development — 4.7★, experienced with React and Python. He's in Chandigarh, ~8.7 km away.",
-  guitar: "Priya Nair is an expert guitar teacher with 4.9★ and 67 reviews. She teaches offline and has sessions on weekends.",
-  music: "Priya Nair teaches guitar with a music degree from Chandigarh University. She's highly recommended with 210+ completed sessions.",
-};
-
-function getAIResponse(query: string): string {
-  const q = query.toLowerCase();
-  if (q.includes('photo')) return aiResponses.photography;
-  if (q.includes('design') || q.includes('figma') || q.includes('graphic')) return aiResponses.design;
-  if (q.includes('cod') || q.includes('web') || q.includes('python') || q.includes('react')) return aiResponses.coding;
-  if (q.includes('guitar')) return aiResponses.guitar;
-  if (q.includes('music') || q.includes('piano') || q.includes('sing')) return aiResponses.music;
-  return aiResponses.default;
-}
 
 interface Filters {
   query: string;
@@ -54,6 +35,8 @@ interface Filters {
   mode: string;
   rating: string;
   experience: string;
+  sortBy: 'rating' | 'sessions' | 'price_asc' | 'price_desc' | 'newest';
+  availableDay: string;
 }
 
 export function ExplorePage() {
@@ -69,14 +52,49 @@ export function ExplorePage() {
     mode: '',
     rating: '',
     experience: '',
+    sortBy: 'rating',
+    availableDay: '',
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(showAssistant);
   const [aiInput, setAiInput] = useState('');
-  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([
-    { role: 'ai', text: "Hi! Tell me what skill you want to learn and I'll recommend the best local providers for you." }
-  ]);
+  const [aiMessages, setAiMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
+
+  // Catalogue data — loaded async, falls back to local TS data if DB unreachable
+  const [activeSkills, setActiveSkills] = useState<CatalogueSkill[]>([]);
+  const [categories, setCategories] = useState<{ name: string; icon: string; count: number }[]>([]);
+  const { isProviderSaved, toggleProvider } = useSavedItems();
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  const [catalogueFallback, setCatalogueFallback] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getCatalogueSkills(), getCatalogueCategories()]).then(([skills, loadedCategories]) => {
+      if (cancelled) return;
+      setActiveSkills(skills);
+      setCategories(loadedCategories);
+      const status = getCatalogueLoadStatus();
+      setCatalogueFallback(status.source === 'fallback' ? status.error : null);
+      setCatalogueLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProviders().then(data => {
+      if (!cancelled) setProviders(data);
+    }).catch(error => {
+      if (!cancelled) setProvidersError(error instanceof Error ? error.message : 'Could not load providers.');
+    }).finally(() => {
+      if (!cancelled) setProvidersLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const updateFilter = (key: keyof Filters, value: string | number) => {
     setLoading(true);
@@ -84,46 +102,86 @@ export function ExplorePage() {
     setTimeout(() => setLoading(false), 300);
   };
 
-  const clearFilter = (key: keyof Filters) => updateFilter(key, key === 'distance' ? 25 : key === 'maxPrice' ? 10000 : '');
+  const clearFilter = (key: keyof Filters) => updateFilter(key, key === 'distance' ? 25 : key === 'maxPrice' ? 10000 : key === 'sortBy' ? 'rating' : '');
+
+  const clearAllFilters = () => setFilters({
+    query: '', category: '', distance: 25, maxPrice: 10000,
+    mode: '', rating: '', experience: '', sortBy: 'rating', availableDay: '',
+  });
 
   const activeFilterCount = [
-    filters.category, filters.mode, filters.rating, filters.experience,
+    filters.category, filters.mode, filters.rating, filters.experience, filters.availableDay,
     filters.distance < 25 ? 'dist' : '',
     filters.maxPrice < 10000 ? 'price' : '',
+    filters.sortBy !== 'rating' ? 'sort' : '',
   ].filter(Boolean).length;
 
   const filteredProviders = useMemo(() => {
-    return mockProviders.filter((p) => {
+    let results = providers.filter((p) => {
       if (filters.query && !p.primarySkill.toLowerCase().includes(filters.query.toLowerCase()) &&
         !p.name.toLowerCase().includes(filters.query.toLowerCase()) &&
         !p.skills.some(s => s.skillName.toLowerCase().includes(filters.query.toLowerCase()))) return false;
       if (filters.category && p.primaryCategory !== filters.category) return false;
-      if (p.distanceKm > filters.distance) return false;
-      if (filters.maxPrice < 10000 && p.skills[0].pricePerSession > filters.maxPrice) return false;
+      if (p.distanceKm !== null && p.distanceKm > filters.distance) return false;
+      if (filters.maxPrice < 10000 && !p.skills.some(skill => skill.pricePerSession <= filters.maxPrice)) return false;
       if (filters.mode && filters.mode !== 'Either') {
         const mode = filters.mode.toLowerCase();
         if (!p.skills.some(s => s.learningMode === mode || s.learningMode === 'either')) return false;
       }
       if (filters.rating === '4.5+' && p.rating < 4.5) return false;
       if (filters.rating === '4.0+' && p.rating < 4.0) return false;
+      if (filters.rating === '3.5+' && p.rating < 3.5) return false;
       if (filters.experience) {
         const exp = filters.experience.toLowerCase() as 'beginner' | 'intermediate' | 'advanced';
         if (!p.skills.some(s => s.experienceLevel === exp)) return false;
       }
+      if (filters.availableDay) {
+        const day = filters.availableDay.toLowerCase();
+        if (!p.availability.some(a => a.day === day && a.slots.length > 0)) return false;
+      }
       return true;
     });
-  }, [filters]);
+
+    // Sort
+    switch (filters.sortBy) {
+      case 'sessions':
+        results = [...results].sort((a, b) => b.totalSessions - a.totalSessions);
+        break;
+      case 'price_asc':
+        results = [...results].sort((a, b) => {
+          const aMin = Math.min(...a.skills.map(s => s.pricePerSession));
+          const bMin = Math.min(...b.skills.map(s => s.pricePerSession));
+          return aMin - bMin;
+        });
+        break;
+      case 'price_desc':
+        results = [...results].sort((a, b) => {
+          const aMin = Math.min(...a.skills.map(s => s.pricePerSession));
+          const bMin = Math.min(...b.skills.map(s => s.pricePerSession));
+          return bMin - aMin;
+        });
+        break;
+      case 'newest':
+        results = [...results].sort((a, b) =>
+          new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime()
+        );
+        break;
+      default: // rating
+        results = [...results].sort((a, b) => b.rating - a.rating);
+    }
+
+    return results;
+  }, [filters, providers]);
 
   const sendAiMessage = () => {
     if (!aiInput.trim()) return;
     const userMsg = aiInput.trim();
-    setAiMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setAiMessages(prev => [...prev,
+      { role: 'user', text: userMsg },
+      { role: 'ai', text: `Searching provider listings for "${userMsg}".` },
+    ]);
     setAiInput('');
-    setTimeout(() => {
-      setAiMessages(prev => [...prev, { role: 'ai', text: getAIResponse(userMsg) }]);
-      // Auto-apply search filter
-      setFilters(f => ({ ...f, query: userMsg.split(' ').slice(0, 2).join(' ') }));
-    }, 600);
+    setFilters(f => ({ ...f, query: userMsg }));
   };
 
   return (
@@ -179,17 +237,17 @@ export function ExplorePage() {
                     <select value={filters.category} onChange={(e) => updateFilter('category', e.target.value)}
                       className="input-base py-2 text-sm">
                       <option value="">All Categories</option>
-                      {skillCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                      {categories.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
                     </select>
                   </div>
 
                   {/* Distance */}
                   <div>
                     <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Distance</p>
-                    <select value={filters.distance} onChange={(e) => updateFilter('distance', Number(e.target.value))}
-                      className="input-base py-2 text-sm">
+                    <select value={filters.distance} disabled className="input-base py-2 text-sm opacity-60">
                       {distanceOptions.map(d => <option key={d} value={d}>Within {d} km</option>)}
                     </select>
+                    <p className="text-[10px] text-slate-400 mt-1">Distance filtering requires provider coordinates.</p>
                   </div>
 
                   {/* Mode */}
@@ -232,12 +290,36 @@ export function ExplorePage() {
                       {experienceOptions.map(e => <option key={e}>{e}</option>)}
                     </select>
                   </div>
+
+                  {/* Available day */}
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Available on</p>
+                    <select value={filters.availableDay} onChange={(e) => updateFilter('availableDay', e.target.value)}
+                      className="input-base py-2 text-sm">
+                      <option value="">Any Day</option>
+                      {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d =>
+                        <option key={d} value={d.toLowerCase()}>{d}</option>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Sort */}
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">Sort by</p>
+                    <select value={filters.sortBy} onChange={(e) => updateFilter('sortBy', e.target.value as Filters['sortBy'])}
+                      className="input-base py-2 text-sm">
+                      <option value="rating">Best rated</option>
+                      <option value="sessions">Most sessions</option>
+                      <option value="price_asc">Price: low to high</option>
+                      <option value="price_desc">Price: high to low</option>
+                      <option value="newest">Newest</option>
+                    </select>
+                  </div>
                 </div>
 
                 {activeFilterCount > 0 && (
-                  <button onClick={() => {
-                    setFilters({ query: '', category: '', distance: 25, maxPrice: 10000, mode: '', rating: '', experience: '' });
-                  }} className="mt-3 text-xs text-red-600 dark:text-red-400 hover:underline flex items-center gap-1">
+                  <button onClick={clearAllFilters}
+                    className="mt-3 text-xs text-red-600 dark:text-red-400 hover:underline flex items-center gap-1">
                     <X className="w-3 h-3" /> Clear all filters
                   </button>
                 )}
@@ -281,25 +363,19 @@ export function ExplorePage() {
               <div className="flex gap-2 mb-5 flex-wrap">
                 <button
                   onClick={() => updateFilter('query', '')}
-                  className={cn('px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-                    !filters.query
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'border-[#E2E8F0] dark:border-[#1E293B] text-slate-600 dark:text-slate-400 hover:border-indigo-300 bg-white dark:bg-[#111827]'
-                  )}
+                  className={cn(!filters.query ? 'skill-chip-active' : 'skill-chip-default')}
                 >
                   All
                 </button>
-                {activeSkills
+                {[...activeSkills]
                   .sort((a, b) => a.popularityRank - b.popularityRank)
                   .map((s) => (
                     <button
                       key={s.id}
                       onClick={() => updateFilter('query', s.name)}
                       className={cn(
-                        'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors flex items-center gap-1',
-                        filters.query === s.name
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'border-[#E2E8F0] dark:border-[#1E293B] text-slate-600 dark:text-slate-400 hover:border-indigo-300 bg-white dark:bg-[#111827]'
+                        'flex items-center gap-1',
+                        filters.query === s.name ? 'skill-chip-active' : 'skill-chip-default'
                       )}
                     >
                       <span>{s.icon}</span>
@@ -308,8 +384,30 @@ export function ExplorePage() {
                   ))}
               </div>
 
-              {loading ? (
+              {catalogueLoading && (
+                <p className="text-xs text-slate-400 mb-4" role="status">Loading skill catalogue…</p>
+              )}
+              {catalogueFallback && (
+                <p className="text-xs text-amber-700 dark:text-amber-300 mb-4" role="status">
+                  Showing the bundled skill catalogue because the database could not be reached.
+                </p>
+              )}
+
+              {providersLoading || loading ? (
                 <SkeletonList count={4} />
+              ) : providersError ? (
+                <EmptyState
+                  icon={<MapPin className="w-6 h-6" />}
+                  title="Could not load providers"
+                  description={providersError}
+                  action={{ label: 'Try Again', onClick: () => {
+                    setProvidersLoading(true);
+                    setProvidersError(null);
+                    getProviders().then(setProviders)
+                      .catch(error => setProvidersError(error instanceof Error ? error.message : 'Could not load providers.'))
+                      .finally(() => setProvidersLoading(false));
+                  } }}
+                />
               ) : filteredProviders.length === 0 ? (
                 (() => {
                   // Check if the searched skill exists in the catalogue
@@ -346,7 +444,7 @@ export function ExplorePage() {
                                 {catalogueMatch.evidenceSummary}
                               </p>
                               <div className="flex flex-wrap gap-2">
-                                {catalogueMatch.tags.map((tag) => (
+                                {catalogueMatch.tags.map((tag: string) => (
                                   <span
                                     key={tag}
                                     className="px-2 py-0.5 rounded-md text-xs bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
@@ -373,7 +471,7 @@ export function ExplorePage() {
                             <Button
                               variant="primary"
                               size="sm"
-                              onClick={() => setFilters({ query: '', category: '', distance: 25, maxPrice: 10000, mode: '', rating: '', experience: '' })}
+                              onClick={() => clearAllFilters()}
                             >
                               Browse all providers
                             </Button>
@@ -395,14 +493,16 @@ export function ExplorePage() {
                       icon={<Search className="w-6 h-6" />}
                       title="No providers found"
                       description="Try adjusting your filters or searching for a different skill."
-                      action={{ label: 'Clear Filters', onClick: () => setFilters({ query: '', category: '', distance: 25, maxPrice: 10000, mode: '', rating: '', experience: '' }) }}
+                      action={{ label: 'Clear Filters', onClick: () => clearAllFilters() }}
                     />
                   );
                 })()
               ) : (
                 <div className="grid gap-4 sm:grid-cols-1 xl:grid-cols-2">
                   {filteredProviders.map(p => (
-                    <ProviderCard key={p.id} provider={p} skillFilter={filters.query} />
+                    <ProviderCard key={p.id} provider={p} skillFilter={filters.query}
+                      isSaved={isProviderSaved(p.id)}
+                      onToggleSave={toggleProvider} />
                   ))}
                 </div>
               )}
@@ -415,7 +515,7 @@ export function ExplorePage() {
                   <div className="flex items-center gap-2 px-4 py-3 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-teal-50 dark:bg-teal-950/20">
                     <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
                     <span className="text-sm font-semibold text-teal-700 dark:text-teal-300">Skill Assistant</span>
-                    <Badge variant="teal" className="ml-auto text-[10px]">Mock AI</Badge>
+                    <Badge variant="teal" className="ml-auto text-[10px]">Provider search</Badge>
                     <button onClick={() => setAiOpen(false)} className="btn-ghost p-1"><X className="w-4 h-4" /></button>
                   </div>
 
@@ -448,7 +548,7 @@ export function ExplorePage() {
                         <Send className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1.5 text-center">Frontend demo — not a real AI model</p>
+                    <p className="text-[10px] text-slate-400 mt-1.5 text-center">Searches current provider listings</p>
                   </div>
                 </div>
               </aside>

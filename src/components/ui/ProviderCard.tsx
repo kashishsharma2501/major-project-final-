@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Clock, Star, Sparkles, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
+import { MapPin, Clock, Star, Sparkles, ChevronDown, ChevronUp, CheckCircle, Heart } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
@@ -13,6 +13,8 @@ interface ProviderCardProps {
   skillFilter?: string;
   className?: string;
   compact?: boolean;
+  isSaved?: boolean;
+  onToggleSave?: (providerId: string) => void;
 }
 
 // ── Match factor computation ──────────────────────────────────────────────────
@@ -40,8 +42,9 @@ function computeMatchFactors(provider: Provider, skillFilter?: string): MatchFac
     : base;
 
   // Location match: closer = higher
-  const locationScore =
-    provider.distanceKm <= 3
+  const locationScore = provider.distanceKm === null
+    ? base
+    : provider.distanceKm <= 3
       ? Math.min(base + 2, 100)
       : provider.distanceKm <= 6
       ? base
@@ -82,7 +85,9 @@ function computeMatchFactors(provider: Provider, skillFilter?: string): MatchFac
       label: 'Location',
       score: Math.round(locationScore),
       reason:
-        provider.distanceKm <= 3
+        provider.distanceKm === null
+          ? 'Location distance is not available'
+          : provider.distanceKm <= 3
           ? `Only ${provider.distanceKm} km away`
           : provider.distanceKm <= 6
           ? `${provider.distanceKm} km — short commute`
@@ -124,7 +129,7 @@ function scoreBadgeColor(score: number) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ProviderCard({ provider, skillFilter, className, compact }: ProviderCardProps) {
+export function ProviderCard({ provider, skillFilter, className, compact, isSaved, onToggleSave }: ProviderCardProps) {
   const navigate = useNavigate();
   const [showBreakdown, setShowBreakdown] = useState(false);
 
@@ -143,7 +148,7 @@ export function ProviderCard({ provider, skillFilter, className, compact }: Prov
   return (
     <div
       className={cn(
-        'card p-5 hover:shadow-elevated transition-all duration-200 cursor-pointer group',
+        'card-hover p-5 cursor-pointer group',
         className
       )}
       onClick={() => navigate(`/providers/${provider.id}`)}
@@ -182,8 +187,18 @@ export function ProviderCard({ provider, skillFilter, className, compact }: Prov
           </div>
         </div>
 
-        {/* Match score badge */}
-        {hasMatchScore && (
+        {/* Match score badge + save button */}
+        <div className="flex items-center gap-2 shrink-0">
+          {onToggleSave && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleSave(provider.id); }}
+              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label={isSaved ? 'Remove from saved' : 'Save provider'}
+            >
+              <Heart className={`w-4 h-4 transition-colors ${isSaved ? 'fill-red-500 text-red-500' : 'text-slate-400 hover:text-red-400'}`} />
+            </button>
+          )}
+          {hasMatchScore && (
           <div
             className={cn(
               'shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold',
@@ -198,6 +213,7 @@ export function ProviderCard({ provider, skillFilter, className, compact }: Prov
             {provider.matchScore}% match
           </div>
         )}
+        </div>
       </div>
 
       {/* ── Stats row ── */}
@@ -227,10 +243,10 @@ export function ProviderCard({ provider, skillFilter, className, compact }: Prov
 
       {/* ── Experience + mode chips ── */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 capitalize">
+        <span className="badge bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900 capitalize">
           {displaySkill.experienceLevel}
         </span>
-        <span className="badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 capitalize">
+        <span className="badge bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300 border border-teal-100 dark:border-teal-900 capitalize">
           {displaySkill.learningMode === 'either' ? 'Online / Offline' : displaySkill.learningMode}
         </span>
         {provider.badges.slice(0, 1).map((b) => (
@@ -301,24 +317,16 @@ export function ProviderCard({ provider, skillFilter, className, compact }: Prov
       {/* ── Footer ── */}
       <div className="flex items-center justify-between mt-1 pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B]">
         <div>
-          <span className="text-lg font-bold text-[#0F172A] dark:text-slate-100">
+          <span className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-400 dark:to-violet-400">
             {formatCurrency(displaySkill.pricePerSession)}
           </span>
           <span className="text-xs text-slate-500 dark:text-slate-400">/session</span>
         </div>
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => navigate(`/providers/${provider.id}`)}
-          >
+          <Button variant="secondary" size="sm" onClick={() => navigate(`/providers/${provider.id}`)}>
             View Profile
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => navigate(`/booking/${provider.id}`)}
-          >
+          <Button variant="primary" size="sm" onClick={() => navigate(`/booking/${provider.id}`)}>
             Book
           </Button>
         </div>

@@ -6,18 +6,18 @@ import { MapPin, Mail } from 'lucide-react';
 const footerLinks = {
   Platform: [
     { label: 'Explore Skills', href: '/explore' },
-    { label: 'How It Works', href: '/#how-it-works' },
-    { label: 'Become a Provider', href: '/#become-provider' },
+    { label: 'How It Works', href: '/how-it-works' },
+    { label: 'Become a Provider', href: '/become-a-provider' },
     { label: 'Find Providers', href: '/explore' },
   ],
   Categories: [
-    { label: 'Creative Arts', href: '/explore?category=creative-arts' },
-    { label: 'Technology', href: '/explore?category=technology' },
-    { label: 'Music', href: '/explore?category=music' },
-    { label: 'Health & Wellness', href: '/explore?category=health' },
+    { label: 'Creative Arts', href: '/explore?category=Creative+Arts' },
+    { label: 'Technology', href: '/explore?category=Technology' },
+    { label: 'Music', href: '/explore?category=Music' },
+    { label: 'Health & Wellness', href: '/explore?category=Health+%26+Wellness' },
   ],
   Company: [
-    { label: 'About', href: '/#about' },
+    { label: 'About', href: '/about' },
     { label: 'Privacy Policy', href: '/privacy' },
     { label: 'Terms of Use', href: '/terms' },
     { label: 'Contact', href: '/contact' },
@@ -26,7 +26,7 @@ const footerLinks = {
 
 export function Footer() {
   return (
-    <footer className="bg-[#0B1220] text-slate-400 mt-auto">
+    <footer className="mt-auto" style={{ background: 'linear-gradient(160deg, #0f0a2e 0%, #0B1220 50%, #071a14 100%)' }}>
       <div className="page-container py-14">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10">
           {/* Brand */}
@@ -50,13 +50,13 @@ export function Footer() {
           {/* Links */}
           {Object.entries(footerLinks).map(([category, links]) => (
             <div key={category}>
-              <h4 className="text-sm font-semibold text-slate-200 mb-4">{category}</h4>
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-4">{category}</h4>
               <ul className="space-y-2.5">
                 {links.map((link) => (
                   <li key={link.label}>
                     <Link
                       to={link.href}
-                      className="text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                      className="text-sm text-slate-500 hover:text-slate-200 transition-colors duration-150"
                     >
                       {link.label}
                     </Link>
@@ -67,12 +67,12 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-12 pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="mt-12 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-slate-600">
-            © 2026 SkillShare Local. Academic project — B.Tech final year. Not a real product.
+            © 2026 SkillShare Local · B.Tech Final Year Project · Lovely Professional University
           </p>
           <p className="text-xs text-slate-600">
-            Built with React + TypeScript + Tailwind CSS
+            React · TypeScript · Tailwind CSS · Supabase
           </p>
         </div>
       </div>

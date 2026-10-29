@@ -1,41 +1,87 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Edit2, MapPin, Globe, Calendar, Star, BookOpen, Award } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
+import { AvatarUpload } from '@/components/ui/AvatarUpload';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Input, Textarea } from '@/components/ui/Input';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/components/ui/Toast';
-import { mockBookings } from '@/data/mockBookings';
-import { getReviewsByLearner } from '@/data/mockReviews';
-import { popularSkills } from '@/data/mockSkills';
+import { getReviewsByLearner } from '@/services/reviewService';
+import { getBookingsByLearner } from '@/services/bookingService';
+import { getCatalogueSkills } from '@/services/catalogueService';
+import type { Booking, Review } from '@/types';
 import { formatDate } from '@/utils/format';
 
-const SKILL_OPTIONS = popularSkills.map((s) => s.name);
-
 export function LearnerProfilePage() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const myBookings = mockBookings.filter((b) => b.learnerId === 'u1');
-  const myReviews = getReviewsByLearner('u1');
+  const [myBookings, setMyBookings] = useState<Booking[]>([]);
+  const [myReviews, setMyReviews] = useState<Review[]>([]);
+  const [skillOptions, setSkillOptions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const completedSessions = myBookings.filter((b) => b.status === 'completed').length;
 
   const [editOpen, setEditOpen] = useState(false);
   const [profile, setProfile] = useState({
-    name: user?.name || 'Aditi Singh',
-    bio: 'Curious learner exploring creative and tech skills in Ludhiana. Currently learning photography and design.',
+    name: user?.name || '',
+    bio: user?.bio || '',
     city: user?.city || 'Ludhiana',
-    languages: ['Hindi', 'Punjabi', 'English'],
-    interestedSkills: ['Photography', 'Graphic Design', 'Web Development'],
+    languages: user?.languages ?? [],
+    interestedSkills: [] as string[],
   });
   const [editForm, setEditForm] = useState(profile);
 
-  const saveProfile = () => {
+  const load = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [bookings, reviews, catalogue] = await Promise.all([
+        getBookingsByLearner(user.id),
+        getReviewsByLearner(user.id),
+        getCatalogueSkills(),
+      ]);
+      setMyBookings(bookings);
+      setMyReviews(reviews);
+      setSkillOptions(catalogue.map(skill => skill.name));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load profile activity.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!user) return;
+    setProfile(current => ({
+      ...current,
+      name: user.name,
+      bio: user.bio ?? '',
+      city: user.city,
+      languages: user.languages ?? [],
+    }));
+  }, [user?.id, user?.name, user?.bio, user?.city, user?.languages]);
+
+  const saveProfile = async () => {
+    const result = await updateProfile({
+      name: editForm.name.trim(),
+      bio: editForm.bio.trim(),
+      city: editForm.city.trim(),
+      languages: editForm.languages,
+    });
+    if (result.error) {
+      toast('error', result.message ?? 'Could not update profile.');
+      return;
+    }
     setProfile(editForm);
     setEditOpen(false);
     toast('success', 'Profile updated');
@@ -53,6 +99,8 @@ export function LearnerProfilePage() {
   return (
     <DashboardLayout title="My Profile">
       <div className="max-w-3xl space-y-6">
+        {loading && <p className="text-sm text-slate-400" role="status">Loading profile activity…</p>}
+        {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
         {/* Profile card */}
         <div className="card p-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -63,7 +111,7 @@ export function LearnerProfilePage() {
                 <div className="flex items-center gap-3 mt-1 text-sm text-slate-500 dark:text-slate-400 flex-wrap">
                   <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{profile.city}</span>
                   <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" />{profile.languages.join(', ')}</span>
-                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />Joined Apr 2026</span>
+                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />Learner account</span>
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   <Badge variant="indigo">Learner</Badge>
@@ -143,6 +191,10 @@ export function LearnerProfilePage() {
       {/* Edit profile modal */}
       <Modal isOpen={editOpen} onClose={() => setEditOpen(false)} title="Edit Profile" size="md">
         <div className="space-y-4">
+          {/* Avatar upload inside edit modal */}
+          <div className="pb-3 border-b border-[#E2E8F0] dark:border-[#1E293B]">
+            <AvatarUpload />
+          </div>
           <Input label="Full name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
           <Textarea label="Bio" value={editForm.bio} onChange={(e) => setEditForm((f) => ({ ...f, bio: e.target.value }))}
             placeholder="Tell providers a bit about yourself and what you want to learn." rows={3} />
@@ -153,7 +205,7 @@ export function LearnerProfilePage() {
           <div>
             <p className="text-sm font-medium text-[#0F172A] dark:text-slate-200 mb-2">Skills I'm interested in</p>
             <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto">
-              {SKILL_OPTIONS.map((s) => (
+              {skillOptions.map((s) => (
                 <button key={s} type="button" onClick={() => toggleSkill(s)}
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
                     editForm.interestedSkills.includes(s)

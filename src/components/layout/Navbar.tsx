@@ -7,13 +7,13 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { mockNotifications } from '@/data/mockNotifications';
+import { useUnreadNotifications } from '@/hooks/useUnreadNotifications';
 
 const navLinks = [
   { label: 'Explore Skills', href: '/explore' },
-  { label: 'How It Works', href: '/#how-it-works' },
-  { label: 'Become a Provider', href: '/#become-provider' },
-  { label: 'About', href: '/#about' },
+  { label: 'How It Works', href: '/how-it-works' },
+  { label: 'Become a Provider', href: '/become-a-provider' },
+  { label: 'About', href: '/about' },
 ];
 
 export function Navbar() {
@@ -26,7 +26,7 @@ export function Navbar() {
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = mockNotifications.filter((n) => !n.isRead).length;
+  const unreadCount = useUnreadNotifications();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -40,7 +40,7 @@ export function Navbar() {
   const dashboardPath = user?.role === 'provider' ? '/provider' : user?.role === 'admin' ? '/admin' : '/dashboard';
 
   return (
-    <header className="sticky top-0 z-40 bg-white/90 dark:bg-[#0B1220]/90 backdrop-blur-md border-b border-[#E2E8F0] dark:border-[#1E293B]">
+    <header className="sticky top-0 z-40 bg-white/80 dark:bg-[#080E1A]/80 backdrop-blur-xl border-b border-slate-200/60 dark:border-white/5 shadow-sm shadow-slate-900/5">
       <div className="page-container">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -94,22 +94,9 @@ export function Navbar() {
                         )}
                       </div>
                       <div className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B] max-h-80 overflow-y-auto">
-                        {mockNotifications.slice(0, 5).map((n) => (
-                          <div key={n.id} className={cn('flex items-start gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors', !n.isRead && 'bg-indigo-50/50 dark:bg-indigo-950/20')}>
-                            {n.avatarUrl ? (
-                              <Avatar src={n.avatarUrl} name={n.actorName || ''} size="sm" />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/40 flex items-center justify-center">
-                                <Bell className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-[#0F172A] dark:text-slate-100">{n.title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">{n.body}</p>
-                            </div>
-                            {!n.isRead && <span className="w-2 h-2 bg-indigo-600 rounded-full shrink-0 mt-1" />}
-                          </div>
-                        ))}
+                        <button onClick={() => { navigate('/notifications'); setNotifOpen(false); }} className="w-full px-4 py-5 text-left text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}` : 'No unread notifications'}
+                        </button>
                       </div>
                       <div className="px-4 py-2 border-t border-[#E2E8F0] dark:border-[#1E293B]">
                         <button
@@ -152,7 +139,7 @@ export function Navbar() {
                         </button>
                         <div className="divider my-1" />
                         <button
-                          onClick={() => { logout(); navigate('/'); setProfileOpen(false); }}
+                          onClick={async () => { await logout(); navigate('/'); setProfileOpen(false); }}
                           className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                         >
                           <LogOut className="w-4 h-4" /> Logout

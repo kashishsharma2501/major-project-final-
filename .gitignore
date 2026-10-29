@@ -27,3 +27,6 @@ yarn-error.log*
 
 # Vite cache
 .vite/
+
+# Supabase CLI local state
+supabase/.temp/

@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Eye, EyeOff, Lock, Mail, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, ArrowRight, Moon, Sun } from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { Moon, Sun } from 'lucide-react';
-import { cn } from '@/utils/cn';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -15,12 +13,11 @@ export function LoginPage() {
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const [email, setEmail] = useState('aditi.singh@email.com');
-  const [password, setPassword] = useState('demo1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [role, setRole] = useState<'learner' | 'provider' | 'admin'>('learner');
 
   const redirectTo = searchParams.get('redirect') || '/dashboard';
 
@@ -29,44 +26,54 @@ export function LoginPage() {
     if (!email || !password) { setError('Please fill in all fields.'); return; }
     setError('');
     setLoading(true);
-    try {
-      await login(email, password, role);
-      const dest = role === 'provider' ? '/provider' : role === 'admin' ? '/admin' : redirectTo;
-      navigate(dest, { replace: true });
-    } catch {
-      setError('Invalid credentials. Please try again.');
-    } finally {
-      setLoading(false);
+
+    const result = await login(email, password);
+
+    setLoading(false);
+
+    if (result.error) {
+      setError(result.message ?? 'Sign in failed. Please try again.');
+      return;
     }
+
+    // Role-based redirect — the AuthContext now reads role from the database.
+    // We navigate to the generic redirect first; the route guards will forward
+    // providers and admins to their correct home screens.
+    navigate(redirectTo, { replace: true });
   };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0B1220] flex">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-[#0B1220] flex-col justify-between p-12 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 relative overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 30%, #4c1d95 60%, #0f766e 100%)' }}>
         <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-          <div className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full bg-indigo-600/10 blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 w-48 h-48 rounded-full bg-teal-600/10 blur-3xl" />
+          <div className="absolute top-1/4 left-1/4 w-64 h-64 rounded-full bg-violet-500/20 blur-3xl animate-float" />
+          <div className="absolute bottom-1/4 right-1/4 w-48 h-48 rounded-full bg-teal-400/20 blur-3xl animate-float-delayed" />
+          <div className="absolute top-1/2 right-1/3 w-32 h-32 rounded-full bg-indigo-400/20 blur-2xl" />
+          {/* Dot grid */}
+          <svg className="absolute inset-0 w-full h-full opacity-10" aria-hidden="true">
+            <defs>
+              <pattern id="ldots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                <circle cx="2" cy="2" r="1.5" fill="white" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#ldots)" />
+          </svg>
         </div>
         <Logo light size="md" />
         <div>
           <blockquote className="text-white text-xl font-medium leading-relaxed mb-4">
-            "I found a photography teacher 3 km from my home. Three sessions in and I can already see the difference."
+            "SkillShare Local connects you with real people in your city who teach the skills you want to learn."
           </blockquote>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-bold">A</div>
-            <div>
-              <p className="text-white text-sm font-medium">Aditi Singh</p>
-              <p className="text-slate-400 text-xs">Learner · Ludhiana</p>
-            </div>
-          </div>
+          <p className="text-slate-400 text-sm">Learn from local experts. Teach what you know.</p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: '680+ Providers', sub: 'Across Punjab & Delhi' },
-            { label: '4.8/5 Rating', sub: 'Average session rating' },
-            { label: '2,400+ Sessions', sub: 'Completed to date' },
-            { label: '1,250+ Skills', sub: 'Available to learn' },
+            { label: 'Hyperlocal', sub: 'Teachers in your neighbourhood' },
+            { label: 'Verified Skills', sub: 'Research-backed catalogue' },
+            { label: 'Any Skill', sub: 'Tech, arts, trades & more' },
+            { label: 'Your City', sub: 'Punjab, Delhi & beyond' },
           ].map((s) => (
             <div key={s.label} className="p-4 rounded-xl bg-white/5 border border-white/10">
               <p className="text-white font-semibold text-sm">{s.label}</p>
@@ -99,28 +106,6 @@ export function LoginPage() {
               Sign up free
             </Link>
           </p>
-
-          {/* Demo role switcher */}
-          <div className="mb-6 p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-xl">
-            <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-2">Demo — choose a role to explore:</p>
-            <div className="flex gap-2">
-              {(['learner', 'provider', 'admin'] as const).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRole(r)}
-                  className={cn(
-                    'flex-1 py-1.5 text-xs font-semibold rounded-lg capitalize transition-colors',
-                    role === r
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-[#E2E8F0] dark:border-slate-700 hover:border-indigo-300'
-                  )}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
 
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <Input
@@ -165,7 +150,7 @@ export function LoginPage() {
             </div>
 
             {error && (
-              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-sm text-red-700 dark:text-red-400">
+              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-sm text-red-700 dark:text-red-400" role="alert">
                 {error}
               </div>
             )}

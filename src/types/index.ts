@@ -76,7 +76,7 @@ export interface Provider {
   avatar?: string;
   location: string;
   city: string;
-  distanceKm: number;
+  distanceKm: number | null;
   bio: string;
   skills: ProviderSkill[];
   primarySkill: string;
@@ -156,6 +156,8 @@ export interface Message {
 
 export interface Conversation {
   id: string;
+  /** The user id who owns this conversation thread (the learner or provider side). */
+  ownerId: string;
   participantId: string;
   participantName: string;
   participantAvatar?: string;
@@ -172,6 +174,8 @@ export interface Conversation {
 
 export interface Notification {
   id: string;
+  /** The user id this notification belongs to. */
+  recipientId: string;
   type: NotificationType;
   title: string;
   body: string;
@@ -191,6 +195,8 @@ export interface AuthUser {
   avatar?: string;
   role: UserRole;
   city: string;
+  bio?: string;
+  languages?: string[];
   isAuthenticated: boolean;
 }
 

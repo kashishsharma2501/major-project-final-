@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ArrowRight, ArrowLeft, Sparkles } from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
-import { popularSkills } from '@/data/mockSkills';
+import { getCatalogueSkills } from '@/services/catalogueService';
+import { useAuth } from '@/context/AuthContext';
+import type { CatalogueSkill } from '@/data/skillCatalogue';
 import type { OnboardingData, ExperienceLevel, LearningMode } from '@/types';
 
 const TOTAL_STEPS = 7;
@@ -55,6 +57,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 
 export function OnboardingPage() {
   const navigate = useNavigate();
+  const { user, updateProfile } = useAuth();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({
     intent: null,
@@ -66,6 +69,12 @@ export function OnboardingPage() {
   });
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
+  const [skills, setSkills] = useState<CatalogueSkill[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(true);
+
+  useEffect(() => {
+    getCatalogueSkills().then(setSkills).finally(() => setSkillsLoading(false));
+  }, []);
 
   const next = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
   const back = () => setStep((s) => Math.max(s - 1, 0));
@@ -95,8 +104,22 @@ export function OnboardingPage() {
     return true;
   };
 
-  const finish = () => {
-    navigate('/dashboard', { replace: true });
+  const finish = async () => {
+    // Persist onboarding completion to the database.
+    // We save the selected skills as languages (repurposed as interests for now)
+    // and mark the profile as onboarding-complete.
+    try {
+      await updateProfile({
+        onboarding_complete: true,
+        // Store selected skill interests in the languages array until a
+        // dedicated skill_interests column is added in a future migration.
+        ...(data.selectedSkills.length > 0 && { languages: data.selectedSkills }),
+      });
+    } catch {
+      // Non-critical — navigate regardless so the user isn't stuck
+    }
+    const dest = data.intent === 'teach' ? '/provider' : '/dashboard';
+    navigate(dest, { replace: true });
   };
 
   return (
@@ -170,7 +193,7 @@ export function OnboardingPage() {
                 {data.selectedSkills.length}/5 selected
               </p>
               <div className="grid grid-cols-2 gap-2 max-h-[360px] overflow-y-auto pr-1">
-                {popularSkills.map((skill) => {
+                {skillsLoading ? <p className="col-span-2 text-sm text-slate-400">Loading skills…</p> : skills.map((skill) => {
                   const selected = data.selectedSkills.includes(skill.name);
                   return (
                     <button
